@@ -1,0 +1,16 @@
+{
+    "keyboard_name": "Waveshare RP2040-Zero Volume Knob",
+    "processor": "RP2040",
+    "bootloader": "rp2040",
+    "matrix_pins": {
+        "direct": [["GP2"]]
+    },
+    "encoder": {
+        "rotary": [
+            {"pin_a": "GP0", "pin_b": "GP1"}
+        ]
+    },
+    "features": {
+        "encoder": true
+    }
+}
