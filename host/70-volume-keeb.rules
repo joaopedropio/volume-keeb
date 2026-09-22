@@ -1,0 +1,3 @@
+# Let the logged-in user write to the volume-keeb Raw HID node (for volume_sync.py).
+# Must sort before 73-seat-late.rules, which is what turns the uaccess tag into an ACL.
+KERNEL=="hidraw*", ATTRS{idVendor}=="feed", ATTRS{idProduct}=="6465", TAG+="uaccess"

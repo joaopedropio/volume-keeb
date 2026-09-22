@@ -7,6 +7,7 @@ Sibling project to [single-keeyb](https://github.com/joaopedropio/single-keeyb) 
 ## Repo layout
 
 - `qmk/waveshare_rp2040_zero_volume/` — the actual QMK custom keyboard definition (`keyboard.json`, `config.h`, `halconf.h`, `mcuconf.h`, `keymaps/volume/keymap.c`). This is the single source of truth.
+- `host/` — `volume_sync.py` (stdlib-only daemon that pushes the host's `pactl` volume/mute and Chrome's MPRIS title to the knob over QMK Raw HID), its udev rule and systemd user unit. The Raw HID packet formats (`0x56, volume%, muted` and `0x54, offset, title chunk` for a NUL-padded 120-byte ASCII title, which the firmware renders at 2x and scrolls) are defined in both `volume_sync.py` and `keymap.c` — keep them in sync.
 
 ## Firmware architecture
 
@@ -28,6 +29,7 @@ CircuitPython's `usb_hid` module (and therefore KMK, which sits on top of it) ha
 
 ## Build toolchain notes
 
+- The current dev machine is Ubuntu 24.04: QMK CLI via `pipx install qmk` (→ `~/.local/bin/qmk`), `qmk_firmware` shallow-cloned at `~/qmk_firmware`, ARM toolchain via `apt` (`gcc-arm-none-eabi`, `libnewlib-arm-none-eabi`, `binutils-arm-none-eabi`). The Arch notes below are from an earlier machine.
 - QMK CLI was installed via `pip install --user qmk` under a pyenv-managed Python (system Python is externally-managed per PEP 668 on this Arch machine) — landed at `~/.local/bin/qmk`.
 - ARM toolchain (`arm-none-eabi-gcc`/`newlib`/`binutils`) and `dfu-util` come from the Arch `extra` repo via `pacman`.
 - Flashing is drag-and-drop UF2 (BOOTSEL bootloader), not `qmk flash`/`dfu-util` — mount the `RPI-RP2` drive and copy the `.uf2` in.

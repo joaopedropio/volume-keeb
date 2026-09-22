@@ -1,0 +1,10 @@
+[Unit]
+Description=Push host volume to the volume-keeb OLED
+After=pipewire-pulse.service pulseaudio.service
+
+[Service]
+ExecStart=%h/volume-keeb/host/volume_sync.py
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

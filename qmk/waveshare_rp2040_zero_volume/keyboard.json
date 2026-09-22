@@ -11,6 +11,8 @@
         ]
     },
     "features": {
-        "encoder": true
+        "encoder": true,
+        "oled": true,
+        "raw": true
     }
 }
