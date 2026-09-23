@@ -54,6 +54,12 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 #define DOUBLE_CLICK_MS 300
 #define VOLUME_STEP 5
 
+// Dim green, same hue/sat as HSV_GREEN at ~35% brightness — the "unlit"
+// half of the green-phosphor-terminal look (secondary text, empty bar
+// segments, unselected chip outlines). HSV_GREEN/HSV_RED/HSV_BLACK come
+// from quantum/color.h.
+#define HSV_DIMGREEN 85, 255, 90
+
 typedef struct {
     uint8_t volume;
     bool    muted;
@@ -80,8 +86,9 @@ static uint8_t  active_app  = 0;
 
 static bool need_full_redraw = true;
 static bool dirty_menu       = false;
-static bool dirty_app_meta   = false;
-static bool dirty_app_vol    = false;
+static bool dirty_header     = false; // app name / VOL-MUTE row
+static bool dirty_title      = false; // big song-title row
+static bool dirty_bar        = false; // segmented volume bar
 
 static uint16_t name_scroll_offset;
 static uint16_t title_scroll_offset;
@@ -98,28 +105,26 @@ static uint32_t click_pending_time;
 
 static bool display_on = true;
 
-static painter_device_t     lcd;
+static painter_device_t      lcd;
 static painter_font_handle_t font_ui;
 static painter_font_handle_t font_big;
 
 #define UI_CHAR_H 13
 #define BIG_CHAR_H 27
-#define MARGIN 4
+#define MARGIN 6
 #define TEXT_W (LCD_WIDTH - 2 * MARGIN)
 
-// App screen: two text rows (name, title) across the top, then a band
-// holding the big percentage on the left and the volume bar on the right.
-#define NAME_Y 4
-#define TITLE_Y 20
-#define INFO_TOP 36
-#define INFO_H (LCD_HEIGHT - INFO_TOP - MARGIN)
-#define PERCENT_X MARGIN
-#define PERCENT_W 78
-#define PERCENT_Y (INFO_TOP + (INFO_H - BIG_CHAR_H) / 2)
-#define BAR_X (PERCENT_X + PERCENT_W + 6)
-#define BAR_W (LCD_WIDTH - BAR_X - MARGIN)
-#define BAR_H 16
-#define BAR_Y (INFO_TOP + (INFO_H - BAR_H) / 2)
+// App screen, styled after a retro green-phosphor terminal: a thin header
+// row (app name left, "VOL nn" / "MUTE" right), a big song-title row, and
+// a segmented VU-meter-style volume bar along the bottom.
+#define ROW1_Y 6
+#define TITLE_Y 24
+#define BAR_Y 60
+#define BAR_H 10
+#define BAR_W (LCD_WIDTH - 2 * MARGIN)
+#define BAR_SEGMENTS 20
+#define BAR_GAP 3
+#define BAR_SEG_W ((BAR_W - (BAR_SEGMENTS - 1) * BAR_GAP) / BAR_SEGMENTS)
 
 // Menu screen: a horizontally-scrollable row of app "chips" (there's no
 // room for a vertical list once the panel is only 76px tall).
@@ -128,6 +133,7 @@ static painter_font_handle_t font_big;
 #define CHIP_W 66
 #define CHIP_GAP 4
 #define MENU_VISIBLE_COLS (LCD_WIDTH / (CHIP_W + CHIP_GAP))
+#define ACTIVE_DOT 5 // marks the chip of the app the App screen would show, independent of the cursor
 
 static void send_ctrl(uint8_t app_id, uint8_t action, uint8_t value) {
     uint8_t buf[RAW_EPSIZE] = {0};
@@ -166,74 +172,98 @@ static void fit_text(const char *src, char *out, size_t out_size, painter_font_h
     }
 }
 
-// Draws `text` centered in a `w`x`h` box at (x,y) when it fits, otherwise
+// Draws `text` left-aligned in a `w`x`h` box at (x,y) when it fits, otherwise
 // scrolls it a character at a time, wrapping with a gap of blank columns.
-// `offset` is the per-field scroll position owned by the caller.
-static void draw_marquee(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char *text, uint16_t offset) {
+// `offset` is the per-field scroll position owned by the caller; color is
+// passed as an HSV_* triple (e.g. HSV_GREEN).
+static void draw_marquee(uint16_t x, uint16_t y, uint16_t w, uint16_t h, painter_font_handle_t font, const char *text, uint16_t offset, uint8_t fg_h, uint8_t fg_s, uint8_t fg_v) {
     lcd_clear_region(x, y, x + w - 1, y + h - 1);
     if (!text[0]) return;
-    uint16_t full_w = qp_textwidth(font_ui, text);
+    uint16_t full_w = qp_textwidth(font, text);
     if (full_w <= w) {
-        qp_drawtext_recolor(lcd, x + (w - full_w) / 2, y, font_ui, text, HSV_WHITE, HSV_BLACK);
+        qp_drawtext_recolor(lcd, x, y, font, text, fg_h, fg_s, fg_v, HSV_BLACK);
         return;
     }
     size_t len   = strlen(text);
     size_t total = len + SCROLL_GAP_CHARS;
-    char   window[40];
+    char   window[48];
     size_t wi = 0;
     window[0] = '\0';
     for (size_t i = 0; i < total && wi < sizeof(window) - 2; i++) {
         size_t idx     = (offset + i) % total;
         window[wi]     = idx < len ? text[idx] : ' ';
         window[wi + 1] = '\0';
-        if (qp_textwidth(font_ui, window) > w) {
+        if (qp_textwidth(font, window) > w) {
             window[wi] = '\0';
             break;
         }
         wi++;
     }
-    qp_drawtext_recolor(lcd, x, y, font_ui, window, HSV_WHITE, HSV_BLACK);
+    qp_drawtext_recolor(lcd, x, y, font, window, fg_h, fg_s, fg_v, HSV_BLACK);
 }
 
-static void draw_percent_and_bar(void) {
+// App name (left, dim) and "VOL nn" / "MUTE" (right, bright green / red).
+static void draw_header(void) {
     app_t *a = &apps[active_app];
+    lcd_clear_region(0, ROW1_Y, LCD_WIDTH - 1, ROW1_Y + UI_CHAR_H - 1);
 
-    lcd_clear_region(0, INFO_TOP, LCD_WIDTH - 1, LCD_HEIGHT - 1);
-    char buf[6];
+    char vol_buf[10];
     if (!host_seen) {
-        strcpy(buf, "--");
+        strcpy(vol_buf, "VOL --");
     } else if (a->muted) {
-        strcpy(buf, "MUTE");
+        strcpy(vol_buf, "MUTE");
     } else {
-        snprintf(buf, sizeof(buf), "%u%%", a->volume);
+        snprintf(vol_buf, sizeof(vol_buf), "VOL %u", a->volume);
     }
-    uint16_t w  = qp_textwidth(font_big, buf);
-    uint16_t px = PERCENT_X + (PERCENT_W - w) / 2;
+    uint16_t vol_w = qp_textwidth(font_ui, vol_buf);
+    uint16_t vol_x = LCD_WIDTH - MARGIN - vol_w;
     if (a->muted) {
-        qp_drawtext_recolor(lcd, px, PERCENT_Y, font_big, buf, HSV_RED, HSV_BLACK);
+        qp_drawtext_recolor(lcd, vol_x, ROW1_Y, font_ui, vol_buf, HSV_RED, HSV_BLACK);
     } else {
-        qp_drawtext_recolor(lcd, px, PERCENT_Y, font_big, buf, HSV_SPRINGGREEN, HSV_BLACK);
+        qp_drawtext_recolor(lcd, vol_x, ROW1_Y, font_ui, vol_buf, HSV_GREEN, HSV_BLACK);
     }
 
-    uint16_t x0 = BAR_X, y0 = BAR_Y, x1 = BAR_X + BAR_W - 1, y1 = BAR_Y + BAR_H - 1;
-    qp_rect(lcd, x0, y0, x1, y1, HSV_WHITE, false);
-    if (host_seen && !a->muted) {
-        uint8_t  percent = a->volume > 100 ? 100 : a->volume;
-        uint16_t fill    = percent * (BAR_W - 2) / 100;
-        if (fill > 0) {
-            qp_rect(lcd, x0 + 1, y0 + 1, x0 + fill, y1 - 1, HSV_SPRINGGREEN, true);
+    uint16_t name_w = vol_x - 2 * MARGIN;
+    draw_marquee(MARGIN, ROW1_Y, name_w, UI_CHAR_H, font_ui, a->name, name_scroll_offset, HSV_DIMGREEN);
+}
+
+// Big song title; dims along with everything else while muted.
+static void draw_title(void) {
+    app_t      *a    = &apps[active_app];
+    const char *text = a->has_media ? a->title : "";
+    if (a->muted) {
+        draw_marquee(MARGIN, TITLE_Y, TEXT_W, BIG_CHAR_H, font_big, text, title_scroll_offset, HSV_DIMGREEN);
+    } else {
+        draw_marquee(MARGIN, TITLE_Y, TEXT_W, BIG_CHAR_H, font_big, text, title_scroll_offset, HSV_GREEN);
+    }
+}
+
+// A VU-meter-style row of segments instead of one continuous fill.
+static void draw_bar(void) {
+    app_t   *a        = &apps[active_app];
+    uint8_t  percent  = a->volume > 100 ? 100 : a->volume;
+    uint8_t  lit      = (host_seen && !a->muted) ? (uint8_t)(percent * BAR_SEGMENTS / 100) : 0;
+    uint16_t actual_w = BAR_SEGMENTS * BAR_SEG_W + (BAR_SEGMENTS - 1) * BAR_GAP;
+    uint16_t start_x  = MARGIN + (BAR_W - actual_w) / 2;
+
+    lcd_clear_region(0, BAR_Y, LCD_WIDTH - 1, BAR_Y + BAR_H - 1);
+    for (uint8_t i = 0; i < BAR_SEGMENTS; i++) {
+        uint16_t x = start_x + i * (BAR_SEG_W + BAR_GAP);
+        if (i < lit) {
+            qp_rect(lcd, x, BAR_Y, x + BAR_SEG_W - 1, BAR_Y + BAR_H - 1, HSV_GREEN, true);
+        } else {
+            qp_rect(lcd, x, BAR_Y, x + BAR_SEG_W - 1, BAR_Y + BAR_H - 1, HSV_DIMGREEN, true);
         }
     }
 }
 
 static void render_app_screen(bool full) {
-    app_t *a = &apps[active_app];
     if (full) {
         lcd_clear_region(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
     }
-    draw_marquee(MARGIN, NAME_Y, TEXT_W, UI_CHAR_H, a->name, name_scroll_offset);
-    draw_marquee(MARGIN, TITLE_Y, TEXT_W, UI_CHAR_H, a->has_media ? a->title : "", title_scroll_offset);
-    draw_percent_and_bar();
+    draw_header();
+    draw_title();
+    draw_bar();
 }
 
 static void render_menu_screen(void) {
@@ -241,7 +271,7 @@ static void render_menu_screen(void) {
     if (app_count == 0) {
         const char *msg = "no apps";
         uint16_t    w   = qp_textwidth(font_ui, msg);
-        qp_drawtext_recolor(lcd, (LCD_WIDTH - w) / 2, (LCD_HEIGHT - UI_CHAR_H) / 2, font_ui, msg, HSV_WHITE, HSV_BLACK);
+        qp_drawtext_recolor(lcd, (LCD_WIDTH - w) / 2, (LCD_HEIGHT - UI_CHAR_H) / 2, font_ui, msg, HSV_DIMGREEN, HSV_BLACK);
         return;
     }
 
@@ -262,9 +292,20 @@ static void render_menu_screen(void) {
         bool     sel = idx == menu_cursor;
         uint16_t cx  = x + col * (CHIP_W + CHIP_GAP);
         if (sel) {
-            qp_rect(lcd, cx, CHIP_TOP, cx + CHIP_W - 1, CHIP_TOP + CHIP_H - 1, HSV_SPRINGGREEN, true);
+            qp_rect(lcd, cx, CHIP_TOP, cx + CHIP_W - 1, CHIP_TOP + CHIP_H - 1, HSV_GREEN, true);
         } else {
-            qp_rect(lcd, cx, CHIP_TOP, cx + CHIP_W - 1, CHIP_TOP + CHIP_H - 1, HSV_WHITE, false);
+            qp_rect(lcd, cx, CHIP_TOP, cx + CHIP_W - 1, CHIP_TOP + CHIP_H - 1, HSV_DIMGREEN, false);
+        }
+        // Marks whichever chip the App screen would return to — independent
+        // of the navigation cursor, same idea as the reference's "ACTIVE" tag.
+        if (idx == active_app) {
+            uint16_t dx = cx + CHIP_W - ACTIVE_DOT - 3;
+            uint16_t dy = CHIP_TOP + 3;
+            if (sel) {
+                qp_rect(lcd, dx, dy, dx + ACTIVE_DOT - 1, dy + ACTIVE_DOT - 1, HSV_BLACK, true);
+            } else {
+                qp_rect(lcd, dx, dy, dx + ACTIVE_DOT - 1, dy + ACTIVE_DOT - 1, HSV_GREEN, true);
+            }
         }
         char fit[NAME_MAX + 3];
         fit_text(apps[idx].name, fit, sizeof(fit), font_ui, CHIP_W - 8);
@@ -272,25 +313,25 @@ static void render_menu_screen(void) {
         uint16_t tx = cx + (CHIP_W - tw) / 2;
         uint16_t ty = CHIP_TOP + (CHIP_H - UI_CHAR_H) / 2;
         if (sel) {
-            qp_drawtext_recolor(lcd, tx, ty, font_ui, fit, HSV_BLACK, HSV_SPRINGGREEN);
+            qp_drawtext_recolor(lcd, tx, ty, font_ui, fit, HSV_BLACK, HSV_GREEN);
         } else {
-            qp_drawtext_recolor(lcd, tx, ty, font_ui, fit, HSV_WHITE, HSV_BLACK);
+            qp_drawtext_recolor(lcd, tx, ty, font_ui, fit, HSV_DIMGREEN, HSV_BLACK);
         }
     }
 }
 
 static void goto_menu(void) {
-    screen      = SCREEN_MENU;
-    menu_cursor = active_app;
-    need_full_redraw = true;
+    screen            = SCREEN_MENU;
+    menu_cursor       = active_app;
+    need_full_redraw  = true;
 }
 
 static void goto_app(uint8_t id) {
-    active_app           = id;
-    screen                = SCREEN_APP;
-    name_scroll_offset    = 0;
-    title_scroll_offset   = 0;
-    need_full_redraw      = true;
+    active_app          = id;
+    screen               = SCREEN_APP;
+    name_scroll_offset   = 0;
+    title_scroll_offset  = 0;
+    need_full_redraw     = true;
 }
 
 static void handle_menu_select(void) {
@@ -308,7 +349,9 @@ static void handle_app_double_click(void) {
 
 static void handle_app_hold(void) {
     apps[active_app].muted = !apps[active_app].muted;
-    dirty_app_vol            = true;
+    dirty_header              = true;
+    dirty_title                = true;
+    dirty_bar                   = true;
     send_ctrl(active_app, ACTION_TOGGLE_MUTE, 0);
 }
 
@@ -327,8 +370,9 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
         int16_t v = (int16_t)a->volume + (clockwise ? VOLUME_STEP : -VOLUME_STEP);
         if (v < 0) v = 0;
         if (v > 100) v = 100;
-        a->volume  = (uint8_t)v;
-        dirty_app_vol = true;
+        a->volume     = (uint8_t)v;
+        dirty_header  = true;
+        dirty_bar     = true;
         send_ctrl(active_app, ACTION_SET_VOLUME, a->volume);
     }
     return false;
@@ -390,9 +434,10 @@ static void apply_app_snapshot(void) {
     host_last_seen = timer_read32();
     if (changed) {
         host_last_change = timer_read32();
-        dirty_menu        = true;
-        dirty_app_meta     = true;
-        dirty_app_vol       = true;
+        dirty_menu         = true;
+        dirty_header         = true;
+        dirty_title            = true;
+        dirty_bar                = true;
     }
 }
 
@@ -506,16 +551,16 @@ void housekeeping_task_user(void) {
 
     if (screen == SCREEN_APP && app_count) {
         app_t *a = &apps[active_app];
-        if (qp_textwidth(font_ui, a->name) > LCD_WIDTH - 2 * MARGIN && timer_elapsed32(name_scroll_timer) >= SCROLL_STEP_MS) {
+        if (qp_textwidth(font_ui, a->name) > TEXT_W && timer_elapsed32(name_scroll_timer) >= SCROLL_STEP_MS) {
             name_scroll_timer = timer_read32();
             name_scroll_offset++;
-            dirty_app_meta = true;
+            dirty_header = true;
         }
         const char *title = a->has_media ? a->title : "";
-        if (title[0] && qp_textwidth(font_ui, title) > LCD_WIDTH - 2 * MARGIN && timer_elapsed32(title_scroll_timer) >= SCROLL_STEP_MS) {
+        if (title[0] && qp_textwidth(font_big, title) > TEXT_W && timer_elapsed32(title_scroll_timer) >= SCROLL_STEP_MS) {
             title_scroll_timer = timer_read32();
             title_scroll_offset++;
-            dirty_app_meta = true;
+            dirty_title = true;
         }
     }
 
@@ -527,8 +572,9 @@ void housekeeping_task_user(void) {
         }
         need_full_redraw = false;
         dirty_menu         = false;
-        dirty_app_meta      = false;
-        dirty_app_vol        = false;
+        dirty_header          = false;
+        dirty_title             = false;
+        dirty_bar                 = false;
         return;
     }
 
@@ -538,15 +584,17 @@ void housekeeping_task_user(void) {
             dirty_menu = false;
         }
     } else {
-        if (dirty_app_meta) {
-            app_t *a = &apps[active_app];
-            draw_marquee(MARGIN, NAME_Y, TEXT_W, UI_CHAR_H, a->name, name_scroll_offset);
-            draw_marquee(MARGIN, TITLE_Y, TEXT_W, UI_CHAR_H, a->has_media ? a->title : "", title_scroll_offset);
-            dirty_app_meta = false;
+        if (dirty_header) {
+            draw_header();
+            dirty_header = false;
         }
-        if (dirty_app_vol) {
-            draw_percent_and_bar();
-            dirty_app_vol = false;
+        if (dirty_title) {
+            draw_title();
+            dirty_title = false;
+        }
+        if (dirty_bar) {
+            draw_bar();
+            dirty_bar = false;
         }
     }
 }

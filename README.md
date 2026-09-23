@@ -41,8 +41,8 @@ The panel is 76x284 in its native orientation, but Quantum Painter drives it rot
 
 The knob has two screens, both landscape:
 
-- **Menu screen** — a horizontally-scrollable row of "app" chips (the default output device as `Master`, plus every currently-playing PulseAudio/PipeWire stream — a vertical list doesn't fit once the panel is only 76px tall). Rotate the encoder to move the highlighted chip; click to open that app's screen.
-- **App screen** — the selected app's name, its media title if it has one (e.g. a browser tab playing a video), and a volume bar + percentage, laid out side by side across the 284px width.
+- **Menu screen** — a horizontally-scrollable row of "app" chips (the default output device as `Master`, plus every currently-playing PulseAudio/PipeWire stream — a vertical list doesn't fit once the panel is only 76px tall). Rotate the encoder to move the highlighted chip; click to open that app's screen. A small marker tags whichever chip the App screen would return to, independent of the navigation cursor.
+- **App screen** — a green-on-black "terminal" look: app name and `VOL nn`/`MUTE` in a thin header row, the media title (if any) large underneath, and a 20-segment volume bar along the bottom instead of one continuous fill.
 
 | Action | Menu screen | App screen |
 |---|---|---|
