@@ -31,6 +31,9 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 //                    data[3..] = chunk. Only sent for apps with has_media set.
 //     APP_END_CMD    data[1] = app count (confirms APP_BEGIN); swaps the
 //                    staged apps into the active list atomically.
+//   Host -> device, whenever the configured theme changes (see --theme in
+//   volume_sync.py) and once right after it (re)connects:
+//     THEME_CMD      data[1] = theme id, indexing into `themes[]` below
 //   Device -> host, one control action for the app currently shown/selected:
 //     CTRL_CMD       data[1] = app id, data[2] = action (0 = set volume to
 //                    data[3]%, 1 = toggle mute, 2 = play/pause), data[3] = value
@@ -38,6 +41,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 #define APP_ENTRY_CMD 0x61
 #define APP_END_CMD 0x62
 #define TITLE_CMD 0x54 // 'T'
+#define THEME_CMD 0x63
 #define CTRL_CMD 0x70
 
 #define ACTION_SET_VOLUME 0
@@ -54,11 +58,42 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 #define DOUBLE_CLICK_MS 300
 #define VOLUME_STEP 5
 
-// Dim green, same hue/sat as HSV_GREEN at ~35% brightness — the "unlit"
-// half of the green-phosphor-terminal look (secondary text, empty bar
-// segments, unselected chip outlines). HSV_GREEN/HSV_RED/HSV_BLACK come
-// from quantum/color.h.
+// Dim green, same hue/sat as HSV_GREEN at ~35% brightness. HSV_GREEN/
+// HSV_RED/HSV_BLACK come from quantum/color.h.
 #define HSV_DIMGREEN 85, 255, 90
+
+// ---------------------------------------------------------------------
+// Themes. Each is a flat palette (HSV_* triples) plus a `boxed` flag: off
+// for the original flat green-phosphor terminal look, on for a neobrutalist
+// look (thick borders + hard, unblurred drop shadows) matching a reference
+// design (cream/black/orange, chunky bordered "cards"). `themes[]`/
+// `THEME_COUNT` is the index space `--theme` on the host picks from.
+// ---------------------------------------------------------------------
+typedef struct {
+    uint8_t bg_h, bg_s, bg_v;
+    uint8_t fg_h, fg_s, fg_v;         // primary text / borders
+    uint8_t dim_h, dim_s, dim_v;      // secondary text / unlit elements
+    uint8_t accent_h, accent_s, accent_v; // lit bar segments / selection fill
+    uint8_t mute_h, mute_s, mute_v;
+    bool    boxed;
+} theme_t;
+
+#define THEME_COUNT 2
+static const theme_t themes[THEME_COUNT] = {
+    // 0: terminal -- flat green phosphor, no decoration
+    {HSV_BLACK, HSV_GREEN, HSV_DIMGREEN, HSV_GREEN, HSV_RED, false},
+    // 1: neobrutal -- cream / near-black / orange, boxed
+    {28, 31, 242, 0, 0, 26, 29, 63, 138, 20, 177, 242, 0, 173, 214, true},
+};
+static uint8_t current_theme = 0;
+
+// Expands to `t->field_h, t->field_v, t->field_s` for use as the trailing
+// HSV args of qp_rect()/qp_drawtext_recolor(), the same way the HSV_* macros
+// spread into 3 positional args.
+#define CT(field) t->field##_h, t->field##_s, t->field##_v
+
+#define BOX_BORDER 1
+#define BOX_SHADOW 2
 
 typedef struct {
     uint8_t volume;
@@ -114,11 +149,11 @@ static painter_font_handle_t font_big;
 #define MARGIN 6
 #define TEXT_W (LCD_WIDTH - 2 * MARGIN)
 
-// App screen, styled after a retro green-phosphor terminal: a thin header
-// row (app name left, "VOL nn" / "MUTE" right), a big song-title row, and
-// a segmented VU-meter-style volume bar along the bottom.
+// App screen: a thin header row (app name left, "VOL nn" / "MUTE" right,
+// boxed as a badge in boxed themes), a big song-title row, and a segmented
+// VU-meter-style volume bar along the bottom (framed in boxed themes).
 #define ROW1_Y 6
-#define TITLE_Y 24
+#define TITLE_Y 27
 #define BAR_Y 60
 #define BAR_H 10
 #define BAR_W (LCD_WIDTH - 2 * MARGIN)
@@ -145,7 +180,28 @@ static void send_ctrl(uint8_t app_id, uint8_t action, uint8_t value) {
 }
 
 static void lcd_clear_region(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
-    qp_rect(lcd, x0, y0, x1, y1, HSV_BLACK, true);
+    const theme_t *t = &themes[current_theme];
+    qp_rect(lcd, x0, y0, x1, y1, CT(bg), true);
+}
+
+// A themed rectangle: in a boxed theme, a hard (unblurred) offset shadow
+// behind a thick border with a `selected` (accent) or plain (bg) fill; in a
+// flat theme, just the fill (or, unselected, an outline over the screen bg —
+// the original terminal look).
+static void draw_box(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, const theme_t *t, bool selected) {
+    if (t->boxed) {
+        qp_rect(lcd, x0 + BOX_SHADOW, y0 + BOX_SHADOW, x1 + BOX_SHADOW, y1 + BOX_SHADOW, CT(fg), true);
+        qp_rect(lcd, x0, y0, x1, y1, CT(fg), true);
+        if (selected) {
+            qp_rect(lcd, x0 + BOX_BORDER, y0 + BOX_BORDER, x1 - BOX_BORDER, y1 - BOX_BORDER, CT(accent), true);
+        } else {
+            qp_rect(lcd, x0 + BOX_BORDER, y0 + BOX_BORDER, x1 - BOX_BORDER, y1 - BOX_BORDER, CT(bg), true);
+        }
+    } else if (selected) {
+        qp_rect(lcd, x0, y0, x1, y1, CT(accent), true);
+    } else {
+        qp_rect(lcd, x0, y0, x1, y1, CT(dim), false);
+    }
 }
 
 // Shrinks `src` into `out` until it fits within `max_w` px in `font`,
@@ -175,13 +231,14 @@ static void fit_text(const char *src, char *out, size_t out_size, painter_font_h
 // Draws `text` left-aligned in a `w`x`h` box at (x,y) when it fits, otherwise
 // scrolls it a character at a time, wrapping with a gap of blank columns.
 // `offset` is the per-field scroll position owned by the caller; color is
-// passed as an HSV_* triple (e.g. HSV_GREEN).
+// passed as an HSV_* triple (e.g. HSV_GREEN) or CT(field).
 static void draw_marquee(uint16_t x, uint16_t y, uint16_t w, uint16_t h, painter_font_handle_t font, const char *text, uint16_t offset, uint8_t fg_h, uint8_t fg_s, uint8_t fg_v) {
+    const theme_t *t = &themes[current_theme];
     lcd_clear_region(x, y, x + w - 1, y + h - 1);
     if (!text[0]) return;
     uint16_t full_w = qp_textwidth(font, text);
     if (full_w <= w) {
-        qp_drawtext_recolor(lcd, x, y, font, text, fg_h, fg_s, fg_v, HSV_BLACK);
+        qp_drawtext_recolor(lcd, x, y, font, text, fg_h, fg_s, fg_v, CT(bg));
         return;
     }
     size_t len   = strlen(text);
@@ -199,13 +256,14 @@ static void draw_marquee(uint16_t x, uint16_t y, uint16_t w, uint16_t h, painter
         }
         wi++;
     }
-    qp_drawtext_recolor(lcd, x, y, font, window, fg_h, fg_s, fg_v, HSV_BLACK);
+    qp_drawtext_recolor(lcd, x, y, font, window, fg_h, fg_s, fg_v, CT(bg));
 }
 
-// App name (left, dim) and "VOL nn" / "MUTE" (right, bright green / red).
+// App name (left, dim) and "VOL nn" / "MUTE" (right, badged in boxed themes).
 static void draw_header(void) {
-    app_t *a = &apps[active_app];
-    lcd_clear_region(0, ROW1_Y, LCD_WIDTH - 1, ROW1_Y + UI_CHAR_H - 1);
+    const theme_t *t = &themes[current_theme];
+    app_t         *a = &apps[active_app];
+    lcd_clear_region(0, 0, LCD_WIDTH - 1, TITLE_Y - 1);
 
     char vol_buf[10];
     if (!host_seen) {
@@ -216,43 +274,57 @@ static void draw_header(void) {
         snprintf(vol_buf, sizeof(vol_buf), "VOL %u", a->volume);
     }
     uint16_t vol_w = qp_textwidth(font_ui, vol_buf);
-    uint16_t vol_x = LCD_WIDTH - MARGIN - vol_w;
+    uint16_t pad   = 3;
+    uint16_t bx1   = LCD_WIDTH - MARGIN - 1;
+    uint16_t vol_x = bx1 - BOX_BORDER - pad - vol_w;
+    uint16_t bx0   = vol_x - pad - BOX_BORDER;
+    uint16_t by0   = ROW1_Y - pad;
+    uint16_t by1   = ROW1_Y + UI_CHAR_H - 1 + pad + BOX_BORDER;
+    if (t->boxed) {
+        draw_box(bx0, by0, bx1, by1, t, false);
+    }
     if (a->muted) {
-        qp_drawtext_recolor(lcd, vol_x, ROW1_Y, font_ui, vol_buf, HSV_RED, HSV_BLACK);
+        qp_drawtext_recolor(lcd, vol_x, ROW1_Y, font_ui, vol_buf, CT(mute), CT(bg));
     } else {
-        qp_drawtext_recolor(lcd, vol_x, ROW1_Y, font_ui, vol_buf, HSV_GREEN, HSV_BLACK);
+        qp_drawtext_recolor(lcd, vol_x, ROW1_Y, font_ui, vol_buf, CT(fg), CT(bg));
     }
 
-    uint16_t name_w = vol_x - 2 * MARGIN;
-    draw_marquee(MARGIN, ROW1_Y, name_w, UI_CHAR_H, font_ui, a->name, name_scroll_offset, HSV_DIMGREEN);
+    uint16_t name_w = bx0 - MARGIN - 4;
+    draw_marquee(MARGIN, ROW1_Y, name_w, UI_CHAR_H, font_ui, a->name, name_scroll_offset, CT(dim));
 }
 
 // Big song title; dims along with everything else while muted.
 static void draw_title(void) {
-    app_t      *a    = &apps[active_app];
-    const char *text = a->has_media ? a->title : "";
+    const theme_t *t    = &themes[current_theme];
+    app_t         *a    = &apps[active_app];
+    const char    *text = a->has_media ? a->title : "";
     if (a->muted) {
-        draw_marquee(MARGIN, TITLE_Y, TEXT_W, BIG_CHAR_H, font_big, text, title_scroll_offset, HSV_DIMGREEN);
+        draw_marquee(MARGIN, TITLE_Y, TEXT_W, BIG_CHAR_H, font_big, text, title_scroll_offset, CT(dim));
     } else {
-        draw_marquee(MARGIN, TITLE_Y, TEXT_W, BIG_CHAR_H, font_big, text, title_scroll_offset, HSV_GREEN);
+        draw_marquee(MARGIN, TITLE_Y, TEXT_W, BIG_CHAR_H, font_big, text, title_scroll_offset, CT(fg));
     }
 }
 
-// A VU-meter-style row of segments instead of one continuous fill.
+// A VU-meter-style row of segments instead of one continuous fill, in an
+// optional bordered/shadowed frame.
 static void draw_bar(void) {
-    app_t   *a        = &apps[active_app];
-    uint8_t  percent  = a->volume > 100 ? 100 : a->volume;
-    uint8_t  lit      = (host_seen && !a->muted) ? (uint8_t)(percent * BAR_SEGMENTS / 100) : 0;
-    uint16_t actual_w = BAR_SEGMENTS * BAR_SEG_W + (BAR_SEGMENTS - 1) * BAR_GAP;
-    uint16_t start_x  = MARGIN + (BAR_W - actual_w) / 2;
+    const theme_t *t         = &themes[current_theme];
+    app_t         *a         = &apps[active_app];
+    uint8_t        percent   = a->volume > 100 ? 100 : a->volume;
+    uint8_t        lit       = (host_seen && !a->muted) ? (uint8_t)(percent * BAR_SEGMENTS / 100) : 0;
+    uint16_t       actual_w  = BAR_SEGMENTS * BAR_SEG_W + (BAR_SEGMENTS - 1) * BAR_GAP;
+    uint16_t       start_x   = MARGIN + (BAR_W - actual_w) / 2;
 
-    lcd_clear_region(0, BAR_Y, LCD_WIDTH - 1, BAR_Y + BAR_H - 1);
+    lcd_clear_region(0, BAR_Y - 4, LCD_WIDTH - 1, LCD_HEIGHT - 1);
+    if (t->boxed) {
+        draw_box(start_x - 3, BAR_Y - 3, start_x + actual_w - 1 + 3, BAR_Y + BAR_H - 1 + 3, t, false);
+    }
     for (uint8_t i = 0; i < BAR_SEGMENTS; i++) {
         uint16_t x = start_x + i * (BAR_SEG_W + BAR_GAP);
         if (i < lit) {
-            qp_rect(lcd, x, BAR_Y, x + BAR_SEG_W - 1, BAR_Y + BAR_H - 1, HSV_GREEN, true);
+            qp_rect(lcd, x, BAR_Y, x + BAR_SEG_W - 1, BAR_Y + BAR_H - 1, CT(accent), true);
         } else {
-            qp_rect(lcd, x, BAR_Y, x + BAR_SEG_W - 1, BAR_Y + BAR_H - 1, HSV_DIMGREEN, true);
+            qp_rect(lcd, x, BAR_Y, x + BAR_SEG_W - 1, BAR_Y + BAR_H - 1, CT(dim), true);
         }
     }
 }
@@ -267,11 +339,12 @@ static void render_app_screen(bool full) {
 }
 
 static void render_menu_screen(void) {
+    const theme_t *t = &themes[current_theme];
     lcd_clear_region(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
     if (app_count == 0) {
         const char *msg = "no apps";
         uint16_t    w   = qp_textwidth(font_ui, msg);
-        qp_drawtext_recolor(lcd, (LCD_WIDTH - w) / 2, (LCD_HEIGHT - UI_CHAR_H) / 2, font_ui, msg, HSV_DIMGREEN, HSV_BLACK);
+        qp_drawtext_recolor(lcd, (LCD_WIDTH - w) / 2, (LCD_HEIGHT - UI_CHAR_H) / 2, font_ui, msg, CT(dim), CT(bg));
         return;
     }
 
@@ -291,20 +364,17 @@ static void render_menu_screen(void) {
         uint8_t  idx = start + col;
         bool     sel = idx == menu_cursor;
         uint16_t cx  = x + col * (CHIP_W + CHIP_GAP);
-        if (sel) {
-            qp_rect(lcd, cx, CHIP_TOP, cx + CHIP_W - 1, CHIP_TOP + CHIP_H - 1, HSV_GREEN, true);
-        } else {
-            qp_rect(lcd, cx, CHIP_TOP, cx + CHIP_W - 1, CHIP_TOP + CHIP_H - 1, HSV_DIMGREEN, false);
-        }
+        draw_box(cx, CHIP_TOP, cx + CHIP_W - 1, CHIP_TOP + CHIP_H - 1, t, sel);
+
         // Marks whichever chip the App screen would return to — independent
         // of the navigation cursor, same idea as the reference's "ACTIVE" tag.
         if (idx == active_app) {
             uint16_t dx = cx + CHIP_W - ACTIVE_DOT - 3;
             uint16_t dy = CHIP_TOP + 3;
             if (sel) {
-                qp_rect(lcd, dx, dy, dx + ACTIVE_DOT - 1, dy + ACTIVE_DOT - 1, HSV_BLACK, true);
+                qp_rect(lcd, dx, dy, dx + ACTIVE_DOT - 1, dy + ACTIVE_DOT - 1, CT(bg), true);
             } else {
-                qp_rect(lcd, dx, dy, dx + ACTIVE_DOT - 1, dy + ACTIVE_DOT - 1, HSV_GREEN, true);
+                qp_rect(lcd, dx, dy, dx + ACTIVE_DOT - 1, dy + ACTIVE_DOT - 1, CT(fg), true);
             }
         }
         char fit[NAME_MAX + 3];
@@ -313,9 +383,9 @@ static void render_menu_screen(void) {
         uint16_t tx = cx + (CHIP_W - tw) / 2;
         uint16_t ty = CHIP_TOP + (CHIP_H - UI_CHAR_H) / 2;
         if (sel) {
-            qp_drawtext_recolor(lcd, tx, ty, font_ui, fit, HSV_BLACK, HSV_GREEN);
+            qp_drawtext_recolor(lcd, tx, ty, font_ui, fit, CT(bg), CT(accent));
         } else {
-            qp_drawtext_recolor(lcd, tx, ty, font_ui, fit, HSV_DIMGREEN, HSV_BLACK);
+            qp_drawtext_recolor(lcd, tx, ty, font_ui, fit, CT(dim), CT(bg));
         }
     }
 }
@@ -486,6 +556,14 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
             apply_app_snapshot();
             break;
         }
+        case THEME_CMD: {
+            if (length < 2) return;
+            uint8_t id = data[1];
+            if (id >= THEME_COUNT || id == current_theme) return;
+            current_theme     = id;
+            need_full_redraw = true;
+            break;
+        }
     }
 }
 
@@ -496,7 +574,7 @@ void keyboard_post_init_user(void) {
     lcd = qp_st7789_make_spi_device(LCD_PANEL_WIDTH, LCD_PANEL_HEIGHT, LCD_CS_PIN, LCD_DC_PIN, LCD_RST_PIN, LCD_SPI_DIVISOR, LCD_SPI_MODE);
     qp_init(lcd, QP_ROTATION_90);
     qp_power(lcd, true);
-    qp_rect(lcd, 0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1, HSV_BLACK, true);
+    lcd_clear_region(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
 
     font_ui  = qp_load_font_mem(font_font_ui);
     font_big = qp_load_font_mem(font_font_big);

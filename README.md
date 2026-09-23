@@ -42,7 +42,7 @@ The panel is 76x284 in its native orientation, but Quantum Painter drives it rot
 The knob has two screens, both landscape:
 
 - **Menu screen** — a horizontally-scrollable row of "app" chips (the default output device as `Master`, plus every currently-playing PulseAudio/PipeWire stream — a vertical list doesn't fit once the panel is only 76px tall). Rotate the encoder to move the highlighted chip; click to open that app's screen. A small marker tags whichever chip the App screen would return to, independent of the navigation cursor.
-- **App screen** — a green-on-black "terminal" look: app name and `VOL nn`/`MUTE` in a thin header row, the media title (if any) large underneath, and a 20-segment volume bar along the bottom instead of one continuous fill.
+- **App screen** — app name and `VOL nn`/`MUTE` in a thin header row, the media title (if any) large underneath, and a 20-segment volume bar along the bottom instead of one continuous fill. Colors and decoration (flat vs. thick-bordered/drop-shadowed) depend on the selected theme — see [Themes](#themes) below.
 
 | Action | Menu screen | App screen |
 |---|---|---|
@@ -67,6 +67,18 @@ mkdir -p ~/.config/systemd/user
 cp host/volume-sync.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now volume-sync
+```
+
+#### Themes
+
+`volume_sync.py --theme {terminal,neobrutal}` picks the knob's display theme (default `terminal`); the choice is pushed to the knob once at startup and again on every reconnect, since the firmware itself doesn't persist it across power cycles. `terminal` is the original flat green-phosphor look; `neobrutal` is a cream/black/orange look with thick borders and hard (unblurred) drop shadows, styled after [this Figma Make concept](https://www.figma.com/make/t8KsdhbALpn6rPHxM7KQUm/Volume-Controller-UI).
+
+To make a theme stick across reboots, add the flag to the systemd unit before enabling it:
+
+```sh
+sed -i 's/volume_sync.py/volume_sync.py --theme neobrutal/' ~/.config/systemd/user/volume-sync.service
+systemctl --user daemon-reload
+systemctl --user restart volume-sync
 ```
 
 ## Firmware

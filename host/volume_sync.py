@@ -8,6 +8,7 @@ and play/pause control come from MPRIS players via `busctl`, matched to a
 sink-input by application name. Packets are written to and read from the
 knob's /dev/hidraw node over QMK Raw HID.
 """
+import argparse
 import glob
 import json
 import os
@@ -25,6 +26,7 @@ APP_BEGIN_CMD = 0x60  # must match keymap.c
 APP_ENTRY_CMD = 0x61
 APP_END_CMD = 0x62
 TITLE_CMD = 0x54  # 'T'
+THEME_CMD = 0x63
 CTRL_CMD = 0x70
 ACTION_SET_VOLUME = 0
 ACTION_TOGGLE_MUTE = 1
@@ -33,6 +35,9 @@ MAX_APPS = 10  # must match keymap.c
 NAME_MAX = 24
 TITLE_MAX = 87
 HEARTBEAT_S = 2  # firmware shows "no host" after 5 s without a packet
+
+# Index into keymap.c's `themes[]` — keep in sync with it.
+THEMES = {"terminal": 0, "neobrutal": 1}
 
 
 def find_hidraw():
@@ -136,8 +141,9 @@ def collect_apps():
 
 
 class Knob:
-    def __init__(self):
+    def __init__(self, theme_id=0):
         self.fd = None
+        self.theme_id = theme_id
 
     def ensure_open(self):
         if self.fd is not None:
@@ -151,18 +157,24 @@ class Knob:
             print(f"can't open {path}: {e}", file=sys.stderr)
             return None
         print(f"connected to {path}", file=sys.stderr)
+        # The knob remembers nothing across a reconnect, so re-push the
+        # configured theme every time it (re)appears.
+        self._write_raw(bytes([THEME_CMD, self.theme_id]))
         return self.fd
+
+    def _write_raw(self, report):
+        report = report.ljust(RAW_EPSIZE, b"\0")
+        try:
+            # Leading 0 = report ID; QMK's Raw HID reports are unnumbered.
+            os.write(self.fd, b"\0" + report)
+        except OSError:
+            self.close()
 
     def write(self, report):
         fd = self.ensure_open()
         if fd is None:
             return
-        report = report.ljust(RAW_EPSIZE, b"\0")
-        try:
-            # Leading 0 = report ID; QMK's Raw HID reports are unnumbered.
-            os.write(fd, b"\0" + report)
-        except OSError:
-            self.close()
+        self._write_raw(report)
 
     def read(self):
         if self.fd is None:
@@ -216,7 +228,16 @@ def handle_report(knob, apps_by_id):
 
 
 def main():
-    knob = Knob()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--theme",
+        choices=sorted(THEMES),
+        default="terminal",
+        help="display theme to push to the knob (default: %(default)s)",
+    )
+    args = parser.parse_args()
+
+    knob = Knob(theme_id=THEMES[args.theme])
     apps_by_id = {}
     while True:
         # `pactl subscribe` prints a line per server event; any sink/server
