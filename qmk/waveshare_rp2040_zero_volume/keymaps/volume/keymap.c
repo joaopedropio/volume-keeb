@@ -61,29 +61,41 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 // Dim green, same hue/sat as HSV_GREEN at ~35% brightness. HSV_GREEN/
 // HSV_RED/HSV_BLACK come from quantum/color.h.
 #define HSV_DIMGREEN 85, 255, 90
+// Near-black, used as the fixed dark edge of a raised/sunken bevel
+// regardless of theme -- bevel shadows read as "dark", not theme-colored.
+#define HSV_BEVEL_DARK 0, 0, 10
 
 // ---------------------------------------------------------------------
-// Themes. Each is a flat palette (HSV_* triples) plus a `boxed` flag: off
-// for the original flat green-phosphor terminal look, on for a neobrutalist
-// look (thick borders + hard, unblurred drop shadows) matching a reference
-// design (cream/black/orange, chunky bordered "cards"). `themes[]`/
-// `THEME_COUNT` is the index space `--theme` on the host picks from.
+// Themes. Each is a flat palette (HSV_* triples) plus a `decor` style:
+//   DECOR_FLAT   the original green-phosphor terminal look -- no boxes.
+//   DECOR_BOXED  neobrutalist: thick borders + hard, unblurred drop
+//                shadows (cream/black/orange reference).
+//   DECOR_BEVEL  Winamp-style: raised/sunken 1px bevel edges, with `well`
+//                as the sunken "LCD readout" background (distinct from
+//                `bg`, the chassis color chips/space sit on).
+// `themes[]`/`THEME_COUNT` is the index space `--theme` on the host picks
+// from.
 // ---------------------------------------------------------------------
+typedef enum { DECOR_FLAT, DECOR_BOXED, DECOR_BEVEL } decor_t;
+
 typedef struct {
-    uint8_t bg_h, bg_s, bg_v;
-    uint8_t fg_h, fg_s, fg_v;         // primary text / borders
-    uint8_t dim_h, dim_s, dim_v;      // secondary text / unlit elements
-    uint8_t accent_h, accent_s, accent_v; // lit bar segments / selection fill
+    uint8_t bg_h, bg_s, bg_v;              // chassis / screen background
+    uint8_t well_h, well_s, well_v;        // sunken LCD-readout background (DECOR_BEVEL only; equals bg otherwise)
+    uint8_t fg_h, fg_s, fg_v;              // primary text / borders / bevel highlight
+    uint8_t dim_h, dim_s, dim_v;           // secondary text / unlit elements
+    uint8_t accent_h, accent_s, accent_v;  // lit bar segments / selection fill
     uint8_t mute_h, mute_s, mute_v;
-    bool    boxed;
+    decor_t decor;
 } theme_t;
 
-#define THEME_COUNT 2
+#define THEME_COUNT 3
 static const theme_t themes[THEME_COUNT] = {
     // 0: terminal -- flat green phosphor, no decoration
-    {HSV_BLACK, HSV_GREEN, HSV_DIMGREEN, HSV_GREEN, HSV_RED, false},
+    {HSV_BLACK, HSV_BLACK, HSV_GREEN, HSV_DIMGREEN, HSV_GREEN, HSV_RED, DECOR_FLAT},
     // 1: neobrutal -- cream / near-black / orange, boxed
-    {28, 31, 242, 0, 0, 26, 29, 63, 138, 20, 177, 242, 0, 173, 214, true},
+    {28, 31, 242, 28, 31, 242, 0, 0, 26, 29, 63, 138, 20, 177, 242, 0, 173, 214, DECOR_BOXED},
+    // 2: winamp -- grey-blue chassis, black LCD wells, green text, amber accent, beveled
+    {170, 41, 88, 85, 85, 15, HSV_GREEN, HSV_DIMGREEN, 31, 211, 255, 1, 188, 232, DECOR_BEVEL},
 };
 static uint8_t current_theme = 0;
 
@@ -149,9 +161,9 @@ static painter_font_handle_t font_big;
 #define MARGIN 6
 #define TEXT_W (LCD_WIDTH - 2 * MARGIN)
 
-// App screen: a thin header row (app name left, "VOL nn" / "MUTE" right,
-// boxed as a badge in boxed themes), a big song-title row, and a segmented
-// VU-meter-style volume bar along the bottom (framed in boxed themes).
+// App screen: a thin header row (app name left, "VOL nn" / "MUTE" right), a
+// big song-title row, and a segmented VU-meter-style volume bar along the
+// bottom -- decorated per-theme (badged/framed, or sunk into an LCD well).
 #define ROW1_Y 6
 #define TITLE_Y 27
 #define BAR_Y 60
@@ -184,12 +196,36 @@ static void lcd_clear_region(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
     qp_rect(lcd, x0, y0, x1, y1, CT(bg), true);
 }
 
-// A themed rectangle: in a boxed theme, a hard (unblurred) offset shadow
-// behind a thick border with a `selected` (accent) or plain (bg) fill; in a
-// flat theme, just the fill (or, unselected, an outline over the screen bg —
-// the original terminal look).
-static void draw_box(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, const theme_t *t, bool selected) {
-    if (t->boxed) {
+// A themed rectangle. `selected` picks an accent fill (a lit segment frame,
+// a chosen menu chip); `sunken` only matters for DECOR_BEVEL, where it picks
+// a recessed "LCD well" look (dark-then-light bevel, `well` fill) over a
+// raised "button" look (light-then-dark bevel, `bg` fill) -- a selected
+// bevel element always reads as pressed/sunken regardless of `sunken`.
+//   DECOR_BOXED: a hard (unblurred) offset shadow behind a thick border.
+//   DECOR_FLAT:  just the fill, or (unselected) an outline over the screen
+//                bg -- the original terminal look.
+static void draw_box(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, const theme_t *t, bool selected, bool sunken) {
+    if (t->decor == DECOR_BEVEL) {
+        if (selected) {
+            qp_rect(lcd, x0, y0, x1, y1, CT(accent), true);
+        } else if (sunken) {
+            qp_rect(lcd, x0, y0, x1, y1, CT(well), true);
+        } else {
+            qp_rect(lcd, x0, y0, x1, y1, CT(bg), true);
+        }
+        bool inset = sunken || selected;
+        if (inset) {
+            qp_line(lcd, x0, y0, x1, y0, HSV_BEVEL_DARK);
+            qp_line(lcd, x0, y0, x0, y1, HSV_BEVEL_DARK);
+            qp_line(lcd, x0, y1, x1, y1, CT(fg));
+            qp_line(lcd, x1, y0, x1, y1, CT(fg));
+        } else {
+            qp_line(lcd, x0, y0, x1, y0, CT(fg));
+            qp_line(lcd, x0, y0, x0, y1, CT(fg));
+            qp_line(lcd, x0, y1, x1, y1, HSV_BEVEL_DARK);
+            qp_line(lcd, x1, y0, x1, y1, HSV_BEVEL_DARK);
+        }
+    } else if (t->decor == DECOR_BOXED) {
         qp_rect(lcd, x0 + BOX_SHADOW, y0 + BOX_SHADOW, x1 + BOX_SHADOW, y1 + BOX_SHADOW, CT(fg), true);
         qp_rect(lcd, x0, y0, x1, y1, CT(fg), true);
         if (selected) {
@@ -234,11 +270,11 @@ static void fit_text(const char *src, char *out, size_t out_size, painter_font_h
 // passed as an HSV_* triple (e.g. HSV_GREEN) or CT(field).
 static void draw_marquee(uint16_t x, uint16_t y, uint16_t w, uint16_t h, painter_font_handle_t font, const char *text, uint16_t offset, uint8_t fg_h, uint8_t fg_s, uint8_t fg_v) {
     const theme_t *t = &themes[current_theme];
-    lcd_clear_region(x, y, x + w - 1, y + h - 1);
+    qp_rect(lcd, x, y, x + w - 1, y + h - 1, CT(well), true);
     if (!text[0]) return;
     uint16_t full_w = qp_textwidth(font, text);
     if (full_w <= w) {
-        qp_drawtext_recolor(lcd, x, y, font, text, fg_h, fg_s, fg_v, CT(bg));
+        qp_drawtext_recolor(lcd, x, y, font, text, fg_h, fg_s, fg_v, CT(well));
         return;
     }
     size_t len   = strlen(text);
@@ -256,14 +292,19 @@ static void draw_marquee(uint16_t x, uint16_t y, uint16_t w, uint16_t h, painter
         }
         wi++;
     }
-    qp_drawtext_recolor(lcd, x, y, font, window, fg_h, fg_s, fg_v, CT(bg));
+    qp_drawtext_recolor(lcd, x, y, font, window, fg_h, fg_s, fg_v, CT(well));
 }
 
-// App name (left, dim) and "VOL nn" / "MUTE" (right, badged in boxed themes).
+// App name (left, dim) and "VOL nn" / "MUTE" (right). Boxed themes badge
+// just the VOL/MUTE text; the beveled theme sinks the whole row into one
+// LCD-style well, closer to how Winamp's own time/info readouts read.
 static void draw_header(void) {
     const theme_t *t = &themes[current_theme];
     app_t         *a = &apps[active_app];
     lcd_clear_region(0, 0, LCD_WIDTH - 1, TITLE_Y - 1);
+    if (t->decor == DECOR_BEVEL) {
+        draw_box(0, 0, LCD_WIDTH - 1, TITLE_Y - 1, t, false, true);
+    }
 
     char vol_buf[10];
     if (!host_seen) {
@@ -280,13 +321,13 @@ static void draw_header(void) {
     uint16_t bx0   = vol_x - pad - BOX_BORDER;
     uint16_t by0   = ROW1_Y - pad;
     uint16_t by1   = ROW1_Y + UI_CHAR_H - 1 + pad + BOX_BORDER;
-    if (t->boxed) {
-        draw_box(bx0, by0, bx1, by1, t, false);
+    if (t->decor == DECOR_BOXED) {
+        draw_box(bx0, by0, bx1, by1, t, false, false);
     }
     if (a->muted) {
-        qp_drawtext_recolor(lcd, vol_x, ROW1_Y, font_ui, vol_buf, CT(mute), CT(bg));
+        qp_drawtext_recolor(lcd, vol_x, ROW1_Y, font_ui, vol_buf, CT(mute), CT(well));
     } else {
-        qp_drawtext_recolor(lcd, vol_x, ROW1_Y, font_ui, vol_buf, CT(fg), CT(bg));
+        qp_drawtext_recolor(lcd, vol_x, ROW1_Y, font_ui, vol_buf, CT(fg), CT(well));
     }
 
     uint16_t name_w = bx0 - MARGIN - 4;
@@ -298,6 +339,9 @@ static void draw_title(void) {
     const theme_t *t    = &themes[current_theme];
     app_t         *a    = &apps[active_app];
     const char    *text = a->has_media ? a->title : "";
+    if (t->decor == DECOR_BEVEL) {
+        draw_box(MARGIN - 2, TITLE_Y, LCD_WIDTH - MARGIN + 1, TITLE_Y + BIG_CHAR_H + 1, t, false, true);
+    }
     if (a->muted) {
         draw_marquee(MARGIN, TITLE_Y, TEXT_W, BIG_CHAR_H, font_big, text, title_scroll_offset, CT(dim));
     } else {
@@ -316,8 +360,8 @@ static void draw_bar(void) {
     uint16_t       start_x   = MARGIN + (BAR_W - actual_w) / 2;
 
     lcd_clear_region(0, BAR_Y - 4, LCD_WIDTH - 1, LCD_HEIGHT - 1);
-    if (t->boxed) {
-        draw_box(start_x - 3, BAR_Y - 3, start_x + actual_w - 1 + 3, BAR_Y + BAR_H - 1 + 3, t, false);
+    if (t->decor != DECOR_FLAT) {
+        draw_box(start_x - 3, BAR_Y - 3, start_x + actual_w - 1 + 3, BAR_Y + BAR_H - 1 + 3, t, false, true);
     }
     for (uint8_t i = 0; i < BAR_SEGMENTS; i++) {
         uint16_t x = start_x + i * (BAR_SEG_W + BAR_GAP);
@@ -364,7 +408,7 @@ static void render_menu_screen(void) {
         uint8_t  idx = start + col;
         bool     sel = idx == menu_cursor;
         uint16_t cx  = x + col * (CHIP_W + CHIP_GAP);
-        draw_box(cx, CHIP_TOP, cx + CHIP_W - 1, CHIP_TOP + CHIP_H - 1, t, sel);
+        draw_box(cx, CHIP_TOP, cx + CHIP_W - 1, CHIP_TOP + CHIP_H - 1, t, sel, false);
 
         // Marks whichever chip the App screen would return to — independent
         // of the navigation cursor, same idea as the reference's "ACTIVE" tag.

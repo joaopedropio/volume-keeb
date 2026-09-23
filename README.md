@@ -42,7 +42,7 @@ The panel is 76x284 in its native orientation, but Quantum Painter drives it rot
 The knob has two screens, both landscape:
 
 - **Menu screen** — a horizontally-scrollable row of "app" chips (the default output device as `Master`, plus every currently-playing PulseAudio/PipeWire stream — a vertical list doesn't fit once the panel is only 76px tall). Rotate the encoder to move the highlighted chip; click to open that app's screen. A small marker tags whichever chip the App screen would return to, independent of the navigation cursor.
-- **App screen** — app name and `VOL nn`/`MUTE` in a thin header row, the media title (if any) large underneath, and a 20-segment volume bar along the bottom instead of one continuous fill. Colors and decoration (flat vs. thick-bordered/drop-shadowed) depend on the selected theme — see [Themes](#themes) below.
+- **App screen** — app name and `VOL nn`/`MUTE` in a thin header row, the media title (if any) large underneath, and a 20-segment volume bar along the bottom instead of one continuous fill. Colors and decoration (flat, thick-bordered/drop-shadowed, or beveled LCD-style wells) depend on the selected theme — see [Themes](#themes) below.
 
 | Action | Menu screen | App screen |
 |---|---|---|
@@ -71,7 +71,11 @@ systemctl --user enable --now volume-sync
 
 #### Themes
 
-`volume_sync.py --theme {terminal,neobrutal}` picks the knob's display theme (default `terminal`); the choice is pushed to the knob once at startup and again on every reconnect, since the firmware itself doesn't persist it across power cycles. `terminal` is the original flat green-phosphor look; `neobrutal` is a cream/black/orange look with thick borders and hard (unblurred) drop shadows, styled after [this Figma Make concept](https://www.figma.com/make/t8KsdhbALpn6rPHxM7KQUm/Volume-Controller-UI).
+`volume_sync.py --theme {terminal,neobrutal,winamp}` picks the knob's display theme (default `terminal`); the choice is pushed to the knob once at startup and again on every reconnect, since the firmware itself doesn't persist it across power cycles.
+
+- `terminal` — the original flat green-phosphor look.
+- `neobrutal` — cream/black/orange, thick borders and hard (unblurred) drop shadows, styled after [this Figma Make concept](https://www.figma.com/make/t8KsdhbALpn6rPHxM7KQUm/Volume-Controller-UI).
+- `winamp` — a grey-blue chassis with black "LCD" wells (the header and title rows, the volume bar) sunk in via a raised/sunken 1px bevel, green readout text, and an amber accent, styled after the classic Winamp player skin. Menu chips read as raised buttons that go sunken when selected, like a pressed toolbar button.
 
 To make a theme stick across reboots, add the flag to the systemd unit before enabling it:
 

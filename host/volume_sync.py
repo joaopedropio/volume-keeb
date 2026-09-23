@@ -37,7 +37,7 @@ TITLE_MAX = 87
 HEARTBEAT_S = 2  # firmware shows "no host" after 5 s without a packet
 
 # Index into keymap.c's `themes[]` — keep in sync with it.
-THEMES = {"terminal": 0, "neobrutal": 1}
+THEMES = {"terminal": 0, "neobrutal": 1, "winamp": 2}
 
 
 def find_hidraw():
