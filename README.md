@@ -1,12 +1,14 @@
 # volume-keeb
 
-A volume-control knob built on a Waveshare RP2040-Zero and an HW-040 rotary encoder module. Runs QMK. Sibling project to [single-keeyb](https://github.com/joaopedropio/single-keeyb), which this repo was forked from.
+A per-app volume mixer built on a Waveshare RP2040-Zero, an HW-040 rotary encoder module, and a 76x284 ST7789 SPI LCD. Runs QMK. Sibling project to [single-keeyb](https://github.com/joaopedropio/single-keeyb), which this repo was forked from.
+
+> This is the `st7789-display` branch: an experimental swap of the original 1.3" OLED for a tall SPI LCD, driven with QMK's Quantum Painter instead of the OLED driver, with a two-screen app-picker UI replacing the old single always-on-master-volume display.
 
 ## Hardware
 
 - Waveshare RP2040-Zero
 - 1x HW-040 rotary encoder module (CLK/DT/SW/+/GND)
-- 1x GME12864 1.3" OLED, SH1107 controller (64x128 panel, driven rotated to 128x64 landscape), I2C (VCC/GND/SCL/SDA)
+- 1x 76x284 ST7789 SPI LCD (portrait strip panel)
 
 ### Wiring
 
@@ -20,28 +22,38 @@ A volume-control knob built on a Waveshare RP2040-Zero and an HW-040 rotary enco
 
 SW is wired directly to ground (no diode, no matrix) — QMK reads it as a direct pin with an internal pull-up, and it's the encoder module's only key.
 
-| OLED pin | RP2040-Zero pin |
+| LCD pin | RP2040-Zero pin |
 |---|---|
 | VCC | 3V3 |
 | GND | GND |
-| SCL | GP5 |
-| SDA | GP4 |
+| SCK | GP6 |
+| MOSI (SDA) | GP7 |
+| CS | GP9 |
+| DC | GP10 |
+| RST | GP11 |
+| BLK | GP12 |
 
-The OLED uses the RP2040's I2C0 peripheral at the default address `0x3C`. The module has its own I2C pull-ups.
+The LCD is write-only, so `SPI_MISO_PIN` (GP4) isn't physically connected — it's only declared because the RP2040's SPI0 peripheral needs a valid pin assigned to configure. `BLK` is a plain digital GPIO (not PWM) toggled by the firmware to blank the panel on the idle timeout; it isn't tied straight to 3V3.
 
 ### Behavior
 
-| Action | Result |
-|---|---|
-| Rotate clockwise | Volume up |
-| Rotate counter-clockwise | Volume down |
-| Press encoder (SW) | Mute |
+The knob has two screens:
 
-The OLED shows the title of whatever Chrome is playing (e.g. a YouTube video) in double-size text, centered, or scrolling horizontally when it doesn't fit. Below it is a volume bar with the host's output volume percentage (or `MUTE`) to its right. A keyboard can't read either, so `host/volume_sync.py` pushes them over QMK Raw HID whenever it changes (and every 2 s as a heartbeat). If the script isn't running, the volume shows `--%`. The display turns off after 60 s without activity to prevent burn-in (scrolling stops then too), and wakes up on any volume or track change.
+- **Menu screen** — a scrollable list of "apps" (the default output device as `Master`, plus every currently-playing PulseAudio/PipeWire stream). Rotate the encoder to move the highlighted row; click to open that app's screen.
+- **App screen** — the selected app's name, its media title if it has one (e.g. a browser tab playing a video), and a volume bar + percentage.
+
+| Action | Menu screen | App screen |
+|---|---|---|
+| Rotate | Move selection | Adjust that app's volume |
+| Click | Open selected app | Back to menu |
+| Double-click | — | Play/pause (if the app exposes MPRIS media controls) |
+| Click and hold | — | Toggle mute |
+
+App and title text scrolls a character at a time when it doesn't fit the 76px-wide screen. The panel blanks after 60 s without activity (encoder/click input or a host-side change) to prevent burn-in, and wakes on either. If `host/volume_sync.py` stops sending, the app list clears and the knob falls back to the menu screen.
 
 ### Host volume sync (Linux)
 
-Requires `pactl` (PulseAudio, or PipeWire with `pipewire-pulse`), `busctl` (systemd; reads Chrome's MPRIS media session) and Python 3. No other dependencies.
+Requires `pactl` (PulseAudio, or PipeWire with `pipewire-pulse`), `busctl` (systemd; reads MPRIS media sessions for titles and play/pause) and Python 3. No other dependencies. Per-app matching between a PulseAudio stream and an MPRIS player is done by normalizing both apps' names (lowercased, non-alphanumerics stripped) and comparing — good enough for common cases like a browser tab, but it's a heuristic, not a guarantee.
 
 ```sh
 # Let your user write to the knob's hidraw device

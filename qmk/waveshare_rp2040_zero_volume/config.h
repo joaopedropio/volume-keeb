@@ -5,12 +5,27 @@
 // Give the host extra time to notice the remote-wakeup packet.
 #define USB_SUSPEND_WAKEUP_DELAY 200
 
-// 1.3" OLED (SH1107, 64x128 native, mounted landscape via OLED_ROTATION_90) on I2C0: SDA=GP4, SCL=GP5.
-// QMK's I2C1_* pin names are driver-agnostic; I2C_DRIVER picks the peripheral.
-#define I2C_DRIVER I2CD0
-#define I2C1_SDA_PIN GP4
-#define I2C1_SCL_PIN GP5
+// 76x284 ST7789 LCD (portrait strip panel) over SPI0.
+// RP2040 GPIO alternate-function mux ties the SPI0 signals to specific pins;
+// SCK/MOSI must be GP2/GP3/GP6/GP7 and MISO to GP0/GP4 for the SPI0
+// peripheral to actually see them (GP0/GP1/GP2 are already the encoder, so
+// the display uses the other half of that pin group). MISO is unused by
+// this write-only display but the ChibiOS SPI driver still wants a valid,
+// SPI0-capable pin configured for it.
+#define SPI_DRIVER SPID0
+#define SPI_SCK_PIN GP6
+#define SPI_MOSI_PIN GP7
+#define SPI_MISO_PIN GP4
 
-// 64X128 implies OLED_IC_SH1107 and the 32-row COM offset this panel needs;
-// without that offset output starts mid-screen.
-#define OLED_DISPLAY_64X128
+#define LCD_CS_PIN GP9
+#define LCD_DC_PIN GP10
+#define LCD_RST_PIN GP11
+#define LCD_SPI_DIVISOR 16
+#define LCD_SPI_MODE 3
+
+// Backlight is a plain digital GPIO (no PWM/dimming) toggled in the keymap
+// to blank the panel on the same idle timeout the old OLED used.
+#define LCD_BLK_PIN GP12
+
+#define LCD_WIDTH 76
+#define LCD_HEIGHT 284

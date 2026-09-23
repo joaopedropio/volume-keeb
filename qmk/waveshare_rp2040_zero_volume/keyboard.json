@@ -12,7 +12,7 @@
     },
     "features": {
         "encoder": true,
-        "oled": true,
+        "quantum_painter": true,
         "raw": true
     }
 }

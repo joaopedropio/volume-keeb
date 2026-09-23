@@ -6,8 +6,9 @@ Sibling project to [single-keeyb](https://github.com/joaopedropio/single-keeyb) 
 
 ## Repo layout
 
-- `qmk/waveshare_rp2040_zero_volume/` — the actual QMK custom keyboard definition (`keyboard.json`, `config.h`, `halconf.h`, `mcuconf.h`, `keymaps/volume/keymap.c`). This is the single source of truth.
-- `host/` — `volume_sync.py` (stdlib-only daemon that pushes the host's `pactl` volume/mute and Chrome's MPRIS title to the knob over QMK Raw HID), its udev rule and systemd user unit. The Raw HID packet formats (`0x56, volume%, muted` and `0x54, offset, title chunk` for a NUL-padded 120-byte ASCII title, which the firmware renders at 2x and scrolls) are defined in both `volume_sync.py` and `keymap.c` — keep them in sync.
+- `qmk/waveshare_rp2040_zero_volume/` — the actual QMK custom keyboard definition (`keyboard.json`, `config.h`, `halconf.h`, `mcuconf.h`, `rules.mk`, `keymaps/volume/keymap.c`, `graphics/*.qff.c`). This is the single source of truth.
+- `host/` — `volume_sync.py` (stdlib-only daemon that turns `pactl`'s per-app streams plus MPRIS players into an app list, pushes it to the knob, and applies the volume/mute/play-pause actions the knob sends back), its udev rule and systemd user unit. Raw HID packet formats: host→device `0x60`/`0x61`/`0x62` (begin/entry/end of an app-list snapshot) and `0x54` (title chunk for the app with media); device→host `0x70` (set volume / toggle mute / play-pause for one app id). Both the layout and the numeric command values are defined in `volume_sync.py` and `keymap.c` — keep them in sync.
+- `qmk/waveshare_rp2040_zero_volume/graphics/*.qff.c` — Quantum Painter fonts, regenerated (not hand-edited) with `qmk painter-make-font-image` + `qmk painter-convert-font-image` from DejaVu Sans Mono; see the header comment each file carries for the exact invocation.
 
 ## Firmware architecture
 
@@ -21,7 +22,7 @@ Edit keyboard/keymap files only inside this repo, never through the symlink targ
 
 ### No separate matrix key — the encoder's SW pin is the only key
 
-QMK requires every board to have at least one matrix key defined in a `LAYOUT` (a `layout: []` with zero entries fails linting: "No LAYOUTs defined!"). An encoder's rotation pins (`pin_a`/`pin_b`) are handled entirely separately from the matrix by `quantum/encoder.c` — they never count as a matrix key. So this board's single matrix entry is the HW-040's own `SW` pushbutton pin (GP2), mapped to `KC_MUTE`; `GP0`/`GP1` (CLK/DT) are declared only under `encoder.rotary` in `keyboard.json` and don't appear in the matrix at all. This is why the board can live under `handwired/onekey/` (which enforces a 1x1 `LAYOUT_ortho_1x1`) despite having no separate physical button — the encoder's built-in switch satisfies that requirement.
+QMK requires every board to have at least one matrix key defined in a `LAYOUT` (a `layout: []` with zero entries fails linting: "No LAYOUTs defined!"). An encoder's rotation pins (`pin_a`/`pin_b`) are handled entirely separately from the matrix by `quantum/encoder.c` — they never count as a matrix key. So this board's single matrix entry is the HW-040's own `SW` pushbutton pin (GP2), mapped to a custom `ENC_CLICK` keycode whose meaning (menu select / back-to-menu / double-click pause / hold-to-mute) depends on which screen is active; `GP0`/`GP1` (CLK/DT) are declared only under `encoder.rotary` in `keyboard.json` and don't appear in the matrix at all. This is why the board can live under `handwired/onekey/` (which enforces a 1x1 `LAYOUT_ortho_1x1`) despite having no separate physical button — the encoder's built-in switch satisfies that requirement.
 
 ## Why QMK, not KMK/CircuitPython
 
