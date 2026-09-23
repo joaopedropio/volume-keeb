@@ -5,7 +5,8 @@
 // Give the host extra time to notice the remote-wakeup packet.
 #define USB_SUSPEND_WAKEUP_DELAY 200
 
-// 76x284 ST7789 LCD (portrait strip panel) over SPI0.
+// 76x284 ST7789 LCD, native panel orientation, mounted/driven landscape
+// (rotated 90 degrees so the UI is 284x76) over SPI0.
 // RP2040 GPIO alternate-function mux ties the SPI0 signals to specific pins;
 // SCK/MOSI must be GP2/GP3/GP6/GP7 and MISO to GP0/GP4 for the SPI0
 // peripheral to actually see them (GP0/GP1/GP2 are already the encoder, so
@@ -27,5 +28,11 @@
 // to blank the panel on the same idle timeout the old OLED used.
 #define LCD_BLK_PIN GP12
 
-#define LCD_WIDTH 76
-#define LCD_HEIGHT 284
+// Native panel pixel dimensions, passed straight to qp_st7789_make_spi_device().
+#define LCD_PANEL_WIDTH 76
+#define LCD_PANEL_HEIGHT 284
+
+// Effective drawing canvas after QP_ROTATION_90 (see keymap.c) — everything
+// else in the firmware lays out against these, landscape.
+#define LCD_WIDTH 284
+#define LCD_HEIGHT 76

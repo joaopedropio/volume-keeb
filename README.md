@@ -8,7 +8,7 @@ A per-app volume mixer built on a Waveshare RP2040-Zero, an HW-040 rotary encode
 
 - Waveshare RP2040-Zero
 - 1x HW-040 rotary encoder module (CLK/DT/SW/+/GND)
-- 1x 76x284 ST7789 SPI LCD (portrait strip panel)
+- 1x 76x284 ST7789 SPI LCD (native-portrait panel, mounted/driven landscape — see below)
 
 ### Wiring
 
@@ -35,12 +35,14 @@ SW is wired directly to ground (no diode, no matrix) — QMK reads it as a direc
 
 The LCD is write-only, so `SPI_MISO_PIN` (GP4) isn't physically connected — it's only declared because the RP2040's SPI0 peripheral needs a valid pin assigned to configure. `BLK` is a plain digital GPIO (not PWM) toggled by the firmware to blank the panel on the idle timeout; it isn't tied straight to 3V3.
 
+The panel is 76x284 in its native orientation, but Quantum Painter drives it rotated 90° (`QP_ROTATION_90`), so the UI itself is landscape: 284px wide by 76px tall. `LCD_PANEL_WIDTH`/`LCD_PANEL_HEIGHT` in `config.h` are the native dimensions passed to the display driver; `LCD_WIDTH`/`LCD_HEIGHT` are the rotated, effective canvas everything else in `keymap.c` lays out against. If the mounted panel ends up showing the UI upside down, flip `QP_ROTATION_90` to `QP_ROTATION_270` in `keymap.c` — that's the only thing rotation direction affects.
+
 ### Behavior
 
-The knob has two screens:
+The knob has two screens, both landscape:
 
-- **Menu screen** — a scrollable list of "apps" (the default output device as `Master`, plus every currently-playing PulseAudio/PipeWire stream). Rotate the encoder to move the highlighted row; click to open that app's screen.
-- **App screen** — the selected app's name, its media title if it has one (e.g. a browser tab playing a video), and a volume bar + percentage.
+- **Menu screen** — a horizontally-scrollable row of "app" chips (the default output device as `Master`, plus every currently-playing PulseAudio/PipeWire stream — a vertical list doesn't fit once the panel is only 76px tall). Rotate the encoder to move the highlighted chip; click to open that app's screen.
+- **App screen** — the selected app's name, its media title if it has one (e.g. a browser tab playing a video), and a volume bar + percentage, laid out side by side across the 284px width.
 
 | Action | Menu screen | App screen |
 |---|---|---|
@@ -49,7 +51,7 @@ The knob has two screens:
 | Double-click | — | Play/pause (if the app exposes MPRIS media controls) |
 | Click and hold | — | Toggle mute |
 
-App and title text scrolls a character at a time when it doesn't fit the 76px-wide screen. The panel blanks after 60 s without activity (encoder/click input or a host-side change) to prevent burn-in, and wakes on either. If `host/volume_sync.py` stops sending, the app list clears and the knob falls back to the menu screen.
+App and title text scrolls a character at a time when it doesn't fit its row. The panel blanks after 60 s without activity (encoder/click input or a host-side change) to prevent burn-in, and wakes on either. If `host/volume_sync.py` stops sending, the app list clears and the knob falls back to the menu screen.
 
 ### Host volume sync (Linux)
 

@@ -12,4 +12,4 @@
 #include <qp.h>
 
 extern const uint32_t font_font_big_length;
-extern const uint8_t  font_font_big[3945];
+extern const uint8_t  font_font_big[3920];
