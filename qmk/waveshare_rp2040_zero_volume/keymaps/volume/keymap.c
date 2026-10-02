@@ -7,6 +7,8 @@
 #include "usb_descriptor.h"
 #include "gpio.h"
 #include "qp.h"
+#include "color.h"
+#include "qp_comms.h"
 #include "graphics/font_ui.qff.h"
 #include "graphics/font_big.qff.h"
 
@@ -613,10 +615,19 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
 
 void keyboard_post_init_user(void) {
     gpio_set_pin_output(LCD_BLK_PIN);
-    gpio_write_pin_high(LCD_BLK_PIN);
+    LCD_BLK_ON();
 
     lcd = qp_st7789_make_spi_device(LCD_PANEL_WIDTH, LCD_PANEL_HEIGHT, LCD_CS_PIN, LCD_DC_PIN, LCD_RST_PIN, LCD_SPI_DIVISOR, LCD_SPI_MODE);
     qp_init(lcd, QP_ROTATION_90);
+    // The 76x284 glass sits centered in the controller's 240x320 RAM:
+    // (320-284)/2 = 18 along the long axis, (240-76)/2 = 82 along the short
+    // one. Offsets apply in the rotated (landscape) frame.
+    qp_set_viewport_offsets(lcd, 18, 82);
+    // QMK's ST7789 init always sends INVON; this panel wants normal polarity.
+    if (qp_comms_start(lcd)) {
+        qp_comms_command(lcd, 0x20); // ST77XX_CMD_INVERT_OFF
+        qp_comms_stop(lcd);
+    }
     qp_power(lcd, true);
     lcd_clear_region(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
 
@@ -629,7 +640,7 @@ void keyboard_post_init_user(void) {
 static void wake_display(void) {
     if (display_on) return;
     display_on = true;
-    gpio_write_pin_high(LCD_BLK_PIN);
+    LCD_BLK_ON();
     qp_power(lcd, true);
     need_full_redraw = true;
 }
@@ -638,7 +649,7 @@ static void sleep_display(void) {
     if (!display_on) return;
     display_on = false;
     qp_power(lcd, false);
-    gpio_write_pin_low(LCD_BLK_PIN);
+    LCD_BLK_OFF();
 }
 
 void housekeeping_task_user(void) {

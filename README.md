@@ -14,9 +14,9 @@ A per-app volume mixer built on a Waveshare RP2040-Zero, an HW-040 rotary encode
 
 | HW-040 pin | RP2040-Zero pin |
 |---|---|
-| CLK | GP0 |
-| DT | GP1 |
-| SW | GP2 |
+| CLK | GP27 |
+| DT | GP28 |
+| SW | GP29 |
 | + | 3V3 |
 | GND | GND |
 
@@ -26,14 +26,14 @@ SW is wired directly to ground (no diode, no matrix) — QMK reads it as a direc
 |---|---|
 | VCC | 3V3 |
 | GND | GND |
-| SCK | GP6 |
-| MOSI (SDA) | GP7 |
-| CS | GP9 |
-| DC | GP10 |
-| RST | GP11 |
-| BLK | GP12 |
+| SCK (SCL) | GP2 |
+| MOSI (SDA) | GP3 |
+| CS | GP1 |
+| DC | GP4 |
+| RST | GP5 |
+| BLK | GP0 |
 
-The LCD is write-only, so `SPI_MISO_PIN` (GP4) isn't physically connected — it's only declared because the RP2040's SPI0 peripheral needs a valid pin assigned to configure. `BLK` is a plain digital GPIO (not PWM) toggled by the firmware to blank the panel on the idle timeout; it isn't tied straight to 3V3.
+The LCD is write-only, so `SPI_MISO_PIN` (GP16, not broken out on the board) isn't physically connected — it's only declared because the RP2040's SPI0 peripheral needs a valid pin assigned to configure. `BLK` is a plain digital GPIO (not PWM, active-low: low = backlight on) toggled by the firmware to blank the panel on the idle timeout; it isn't tied straight to 3V3.
 
 The panel is 76x284 in its native orientation, but Quantum Painter drives it rotated 90° (`QP_ROTATION_90`), so the UI itself is landscape: 284px wide by 76px tall. `LCD_PANEL_WIDTH`/`LCD_PANEL_HEIGHT` in `config.h` are the native dimensions passed to the display driver; `LCD_WIDTH`/`LCD_HEIGHT` are the rotated, effective canvas everything else in `keymap.c` lays out against. If the mounted panel ends up showing the UI upside down, flip `QP_ROTATION_90` to `QP_ROTATION_270` in `keymap.c` — that's the only thing rotation direction affects.
 
