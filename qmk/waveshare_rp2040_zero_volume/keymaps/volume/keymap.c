@@ -166,20 +166,20 @@ static painter_font_handle_t font_big;
 // App screen: a thin header row (app name left, "VOL nn" / "MUTE" right), a
 // big song-title row, and a segmented VU-meter-style volume bar along the
 // bottom -- decorated per-theme (badged/framed, or sunk into an LCD well).
-#define ROW1_Y 6
-#define TITLE_Y 27
-#define BAR_Y 60
-#define BAR_H 10
+#define ROW1_Y 16
+#define TITLE_Y 56
+#define BAR_Y (LCD_HEIGHT - 64)
+#define BAR_H 28
 #define BAR_W (LCD_WIDTH - 2 * MARGIN)
-#define BAR_SEGMENTS 20
+#define BAR_SEGMENTS 24
 #define BAR_GAP 3
 #define BAR_SEG_W ((BAR_W - (BAR_SEGMENTS - 1) * BAR_GAP) / BAR_SEGMENTS)
 
 // Menu screen: a horizontally-scrollable row of app "chips" (there's no
-// room for a vertical list once the panel is only 76px tall).
-#define CHIP_TOP 4
-#define CHIP_H (LCD_HEIGHT - 2 * CHIP_TOP)
-#define CHIP_W 66
+// room for a vertical list on a landscape strip).
+#define CHIP_TOP ((LCD_HEIGHT - CHIP_H) / 2)
+#define CHIP_H 72
+#define CHIP_W 96
 #define CHIP_GAP 4
 #define MENU_VISIBLE_COLS (LCD_WIDTH / (CHIP_W + CHIP_GAP))
 #define ACTIVE_DOT 5 // marks the chip of the app the App screen would show, independent of the cursor
@@ -617,17 +617,10 @@ void keyboard_post_init_user(void) {
     gpio_set_pin_output(LCD_BLK_PIN);
     LCD_BLK_ON();
 
-    lcd = qp_st7789_make_spi_device(LCD_PANEL_WIDTH, LCD_PANEL_HEIGHT, LCD_CS_PIN, LCD_DC_PIN, LCD_RST_PIN, LCD_SPI_DIVISOR, LCD_SPI_MODE);
+    lcd = qp_ili9341_make_spi_device(LCD_PANEL_WIDTH, LCD_PANEL_HEIGHT, LCD_CS_PIN, LCD_DC_PIN, LCD_RST_PIN, LCD_SPI_DIVISOR, LCD_SPI_MODE);
     qp_init(lcd, QP_ROTATION_90);
-    // The 76x284 glass sits centered in the controller's 240x320 RAM:
-    // (320-284)/2 = 18 along the long axis, (240-76)/2 = 82 along the short
-    // one. Offsets apply in the rotated (landscape) frame.
-    qp_set_viewport_offsets(lcd, 18, 82);
-    // QMK's ST7789 init always sends INVON; this panel wants normal polarity.
-    if (qp_comms_start(lcd)) {
-        qp_comms_command(lcd, 0x20); // ST77XX_CMD_INVERT_OFF
-        qp_comms_stop(lcd);
-    }
+    // The ILI9341 glass fills its RAM exactly, so no viewport offsets or
+    // inversion tweaks are needed.
     qp_power(lcd, true);
     lcd_clear_region(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
 

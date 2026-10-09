@@ -1,14 +1,14 @@
 # volume-keeb
 
-A per-app volume mixer built on a Waveshare RP2040-Zero, an HW-040 rotary encoder module, and a 76x284 ST7789 SPI LCD. Runs QMK. Sibling project to [single-keeyb](https://github.com/joaopedropio/single-keeyb), which this repo was forked from.
+A per-app volume mixer built on a Waveshare RP2040-Zero, an HW-040 rotary encoder module, and a 2.8" 240x320 ILI9341 SPI LCD. Runs QMK. Sibling project to [single-keeyb](https://github.com/joaopedropio/single-keeyb), which this repo was forked from.
 
-> This is the `st7789-display` branch: an experimental swap of the original 1.3" OLED for a tall SPI LCD, driven with QMK's Quantum Painter instead of the OLED driver, with a two-screen app-picker UI replacing the old single always-on-master-volume display.
+> This is the `ili9341-2.79-display` branch: an experimental swap of the original 1.3" OLED for a tall SPI LCD, driven with QMK's Quantum Painter instead of the OLED driver, with a two-screen app-picker UI replacing the old single always-on-master-volume display.
 
 ## Hardware
 
 - Waveshare RP2040-Zero
 - 1x HW-040 rotary encoder module (CLK/DT/SW/+/GND)
-- 1x 76x284 ST7789 SPI LCD (native-portrait panel, mounted/driven landscape — see below)
+- 1x 2.8" 240x320 ILI9341 SPI LCD (native-portrait panel, mounted/driven landscape — see below)
 
 ### Wiring
 
@@ -35,7 +35,7 @@ SW is wired directly to ground (no diode, no matrix) — QMK reads it as a direc
 
 The LCD is write-only, so `SPI_MISO_PIN` (GP16, not broken out on the board) isn't physically connected — it's only declared because the RP2040's SPI0 peripheral needs a valid pin assigned to configure. `BLK` is a plain digital GPIO (not PWM, active-low: low = backlight on) toggled by the firmware to blank the panel on the idle timeout; it isn't tied straight to 3V3.
 
-The panel is 76x284 in its native orientation, but Quantum Painter drives it rotated 90° (`QP_ROTATION_90`), so the UI itself is landscape: 284px wide by 76px tall. `LCD_PANEL_WIDTH`/`LCD_PANEL_HEIGHT` in `config.h` are the native dimensions passed to the display driver; `LCD_WIDTH`/`LCD_HEIGHT` are the rotated, effective canvas everything else in `keymap.c` lays out against. If the mounted panel ends up showing the UI upside down, flip `QP_ROTATION_90` to `QP_ROTATION_270` in `keymap.c` — that's the only thing rotation direction affects.
+The panel is 240x320 in its native orientation, but Quantum Painter drives it rotated 90° (`QP_ROTATION_90`), so the UI itself is landscape: 320px wide by 240px tall. `LCD_PANEL_WIDTH`/`LCD_PANEL_HEIGHT` in `config.h` are the native dimensions passed to the display driver; `LCD_WIDTH`/`LCD_HEIGHT` are the rotated, effective canvas everything else in `keymap.c` lays out against. If the mounted panel ends up showing the UI upside down, flip `QP_ROTATION_90` to `QP_ROTATION_270` in `keymap.c` — that's the only thing rotation direction affects.
 
 ### Behavior
 
