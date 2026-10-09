@@ -9,6 +9,7 @@
 #include "qp.h"
 #include "color.h"
 #include "qp_comms.h"
+#include "qp_nv3007.h"
 #include "graphics/font_ui.qff.h"
 #include "graphics/font_big.qff.h"
 
@@ -166,20 +167,20 @@ static painter_font_handle_t font_big;
 // App screen: a thin header row (app name left, "VOL nn" / "MUTE" right), a
 // big song-title row, and a segmented VU-meter-style volume bar along the
 // bottom -- decorated per-theme (badged/framed, or sunk into an LCD well).
-#define ROW1_Y 16
-#define TITLE_Y 56
-#define BAR_Y (LCD_HEIGHT - 64)
-#define BAR_H 28
+#define ROW1_Y 10
+#define TITLE_Y 40
+#define BAR_Y 106
+#define BAR_H 20
 #define BAR_W (LCD_WIDTH - 2 * MARGIN)
-#define BAR_SEGMENTS 24
+#define BAR_SEGMENTS 30
 #define BAR_GAP 3
 #define BAR_SEG_W ((BAR_W - (BAR_SEGMENTS - 1) * BAR_GAP) / BAR_SEGMENTS)
 
 // Menu screen: a horizontally-scrollable row of app "chips" (there's no
 // room for a vertical list on a landscape strip).
 #define CHIP_TOP ((LCD_HEIGHT - CHIP_H) / 2)
-#define CHIP_H 72
-#define CHIP_W 96
+#define CHIP_H 90
+#define CHIP_W 100
 #define CHIP_GAP 4
 #define MENU_VISIBLE_COLS (LCD_WIDTH / (CHIP_W + CHIP_GAP))
 #define ACTIVE_DOT 5 // marks the chip of the app the App screen would show, independent of the cursor
@@ -617,10 +618,12 @@ void keyboard_post_init_user(void) {
     gpio_set_pin_output(LCD_BLK_PIN);
     LCD_BLK_ON();
 
-    lcd = qp_ili9341_make_spi_device(LCD_PANEL_WIDTH, LCD_PANEL_HEIGHT, LCD_CS_PIN, LCD_DC_PIN, LCD_RST_PIN, LCD_SPI_DIVISOR, LCD_SPI_MODE);
+    lcd = qp_nv3007_make_spi_device(LCD_PANEL_WIDTH, LCD_PANEL_HEIGHT, LCD_CS_PIN, LCD_DC_PIN, LCD_RST_PIN, LCD_SPI_DIVISOR, LCD_SPI_MODE);
     qp_init(lcd, QP_ROTATION_90);
-    // The ILI9341 glass fills its RAM exactly, so no viewport offsets or
-    // inversion tweaks are needed.
+    // The 142x428 glass sits inside the NV3007's 168x428 RAM; in the rotated
+    // (landscape) frame the spare columns become a Y offset. Tune
+    // LCD_OFFSET_Y in config.h if the image is shifted or clipped.
+    qp_set_viewport_offsets(lcd, LCD_OFFSET_X, LCD_OFFSET_Y);
     qp_power(lcd, true);
     lcd_clear_region(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
 
