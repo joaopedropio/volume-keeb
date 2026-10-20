@@ -27,9 +27,9 @@
 // Backlight is a plain digital GPIO (no PWM/dimming) toggled in the keymap
 // to blank the panel on the same idle timeout the old OLED used.
 #define LCD_BLK_PIN GP0
-// This module's backlight is active-low: driving the pin low turns it on.
-#define LCD_BLK_ON() gpio_write_pin_low(LCD_BLK_PIN)
-#define LCD_BLK_OFF() gpio_write_pin_high(LCD_BLK_PIN)
+// The NV3007 module's backlight is active-high: driving the pin high turns it on.
+#define LCD_BLK_ON() gpio_write_pin_high(LCD_BLK_PIN)
+#define LCD_BLK_OFF() gpio_write_pin_low(LCD_BLK_PIN)
 
 // Native panel pixel dimensions, passed straight to qp_nv3007_make_spi_device().
 #define LCD_PANEL_WIDTH 142

@@ -2,13 +2,13 @@
 
 A per-app volume mixer built on a Waveshare RP2040-Zero, an HW-040 rotary encoder module, and a 2.79" 142x428 NV3007 SPI LCD (custom driver in `qp_nv3007.c`). Runs QMK. Sibling project to [single-keeyb](https://github.com/joaopedropio/single-keeyb), which this repo was forked from.
 
-> This is the `nv3007-display` branch: an experimental swap of the original 1.3" OLED for a tall SPI LCD, driven with QMK's Quantum Painter instead of the OLED driver, with a two-screen app-picker UI replacing the old single always-on-master-volume display.
+The display is driven with QMK's Quantum Painter, with a two-screen app-picker UI (earlier revisions used a 1.3" OLED, then ST7789 and ILI9341 SPI panels).
 
 ## Hardware
 
 - Waveshare RP2040-Zero
 - 1x HW-040 rotary encoder module (CLK/DT/SW/+/GND)
-- 1x 2.79" 142x428 NV3007 SPI LCD (custom driver in `qp_nv3007.c`) (native-portrait panel, mounted/driven landscape — see below)
+- 1x 2.79" 142x428 NV3007 SPI IPS LCD (native-portrait panel, mounted/driven landscape — see below)
 
 ### Wiring
 
@@ -33,16 +33,24 @@ SW is wired directly to ground (no diode, no matrix) — QMK reads it as a direc
 | RST | GP5 |
 | BLK | GP0 |
 
-The LCD is write-only, so `SPI_MISO_PIN` (GP16, not broken out on the board) isn't physically connected — it's only declared because the RP2040's SPI0 peripheral needs a valid pin assigned to configure. `BLK` is a plain digital GPIO (not PWM, active-low: low = backlight on) toggled by the firmware to blank the panel on the idle timeout; it isn't tied straight to 3V3.
+The LCD is write-only, so `SPI_MISO_PIN` (GP16, not broken out on the board) isn't physically connected — it's only declared because the RP2040's SPI0 peripheral needs a valid pin assigned to configure. `BLK` is a plain digital GPIO (not PWM, active-high on the NV3007 module: high = backlight on) toggled by the firmware to blank the panel on the idle timeout; it isn't tied straight to 3V3.
 
 The panel is 142x428 in its native orientation, but Quantum Painter drives it rotated 90° (`QP_ROTATION_90`), so the UI itself is landscape: 428px wide by 142px tall. `LCD_PANEL_WIDTH`/`LCD_PANEL_HEIGHT` in `config.h` are the native dimensions passed to the display driver; `LCD_WIDTH`/`LCD_HEIGHT` are the rotated, effective canvas everything else in `keymap.c` lays out against. If the mounted panel ends up showing the UI upside down, flip `QP_ROTATION_90` to `QP_ROTATION_270` in `keymap.c` — that's the only thing rotation direction affects.
+
+#### NV3007 driver
+
+QMK has no upstream NV3007 driver, so `qp_nv3007.c` provides one: it reuses Quantum Painter's generic `tft_panel`/SPI machinery (the same code path as the ST7789 driver, which is why `rules.mk` still lists `st7789_spi` under `QUANTUM_PAINTER_DRIVERS`) and only supplies the controller's own init sequence. Panel tuning knobs live in `config.h`:
+
+- `LCD_OFFSET_X`/`LCD_OFFSET_Y` — where the 142px-wide glass sits inside the controller's 168-wide RAM, in the rotated frame (currently `0`/`13`). If the image is shifted or has a garbage strip along one edge, adjust these.
+- `NV3007_INVERT` — uncomment if colors come out inverted.
+- `LCD_SPI_DIVISOR`/`LCD_SPI_MODE` — SPI clock divisor (`4`) and mode (`3`).
 
 ### Behavior
 
 The knob has two screens, both landscape:
 
-- **Menu screen** — a horizontally-scrollable row of "app" chips (the default output device as `Master`, plus every currently-playing PulseAudio/PipeWire stream — a vertical list doesn't fit once the panel is only 76px tall). Rotate the encoder to move the highlighted chip; click to open that app's screen. A small marker tags whichever chip the App screen would return to, independent of the navigation cursor.
-- **App screen** — app name and `VOL nn`/`MUTE` in a thin header row, the media title (if any) large underneath, and a 20-segment volume bar along the bottom instead of one continuous fill. Colors and decoration (flat, thick-bordered/drop-shadowed, or beveled LCD-style wells) depend on the selected theme — see [Themes](#themes) below.
+- **Menu screen** — a horizontally-scrollable row of "app" chips (the default output device as `Master`, plus every currently-playing PulseAudio/PipeWire stream — a vertical list doesn't fit once the panel is only 142px tall). Rotate the encoder to move the highlighted chip; click to open that app's screen. A small marker tags whichever chip the App screen would return to, independent of the navigation cursor.
+- **App screen** — app name and `VOL nn`/`MUTE` in a thin header row, the media title (if any) large underneath, and a 30-segment volume bar along the bottom instead of one continuous fill. Colors and decoration (flat, thick-bordered/drop-shadowed, or beveled LCD-style wells) depend on the selected theme — see [Themes](#themes) below.
 
 | Action | Menu screen | App screen |
 |---|---|---|
