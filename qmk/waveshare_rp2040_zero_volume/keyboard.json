@@ -3,16 +3,16 @@
     "processor": "RP2040",
     "bootloader": "rp2040",
     "matrix_pins": {
-        "direct": [["GP2"]]
+        "direct": [["GP29"]]
     },
     "encoder": {
         "rotary": [
-            {"pin_a": "GP0", "pin_b": "GP1"}
+            {"pin_a": "GP27", "pin_b": "GP28"}
         ]
     },
     "features": {
         "encoder": true,
-        "oled": true,
+        "quantum_painter": true,
         "raw": true
     }
 }

@@ -1,47 +1,69 @@
 # volume-keeb
 
-A volume-control knob built on a Waveshare RP2040-Zero and an HW-040 rotary encoder module. Runs QMK. Sibling project to [single-keeyb](https://github.com/joaopedropio/single-keeyb), which this repo was forked from.
+A per-app volume mixer built on a Waveshare RP2040-Zero, an HW-040 rotary encoder module, and a 2.79" 142x428 NV3007 SPI LCD (custom driver in `qp_nv3007.c`). Runs QMK. Sibling project to [single-keeyb](https://github.com/joaopedropio/single-keeyb), which this repo was forked from.
+
+The display is driven with QMK's Quantum Painter, with a two-screen app-picker UI (earlier revisions used a 1.3" OLED, then ST7789 and ILI9341 SPI panels).
 
 ## Hardware
 
 - Waveshare RP2040-Zero
 - 1x HW-040 rotary encoder module (CLK/DT/SW/+/GND)
-- 1x GME12864 1.3" OLED, SH1107 controller (64x128 panel, driven rotated to 128x64 landscape), I2C (VCC/GND/SCL/SDA)
+- 1x 2.79" 142x428 NV3007 SPI IPS LCD (native-portrait panel, mounted/driven landscape — see below)
 
 ### Wiring
 
 | HW-040 pin | RP2040-Zero pin |
 |---|---|
-| CLK | GP0 |
-| DT | GP1 |
-| SW | GP2 |
+| CLK | GP27 |
+| DT | GP28 |
+| SW | GP29 |
 | + | 3V3 |
 | GND | GND |
 
 SW is wired directly to ground (no diode, no matrix) — QMK reads it as a direct pin with an internal pull-up, and it's the encoder module's only key.
 
-| OLED pin | RP2040-Zero pin |
+| LCD pin | RP2040-Zero pin |
 |---|---|
 | VCC | 3V3 |
 | GND | GND |
-| SCL | GP5 |
-| SDA | GP4 |
+| SCK (SCL) | GP2 |
+| MOSI (SDA) | GP3 |
+| CS | GP1 |
+| DC | GP4 |
+| RST | GP5 |
+| BLK | GP0 |
 
-The OLED uses the RP2040's I2C0 peripheral at the default address `0x3C`. The module has its own I2C pull-ups.
+The LCD is write-only, so `SPI_MISO_PIN` (GP16, not broken out on the board) isn't physically connected — it's only declared because the RP2040's SPI0 peripheral needs a valid pin assigned to configure. `BLK` is a plain digital GPIO (not PWM, active-high on the NV3007 module: high = backlight on) toggled by the firmware to blank the panel on the idle timeout; it isn't tied straight to 3V3.
+
+The panel is 142x428 in its native orientation, but Quantum Painter drives it rotated 90° (`QP_ROTATION_90`), so the UI itself is landscape: 428px wide by 142px tall. `LCD_PANEL_WIDTH`/`LCD_PANEL_HEIGHT` in `config.h` are the native dimensions passed to the display driver; `LCD_WIDTH`/`LCD_HEIGHT` are the rotated, effective canvas everything else in `keymap.c` lays out against. If the mounted panel ends up showing the UI upside down, flip `QP_ROTATION_90` to `QP_ROTATION_270` in `keymap.c` — that's the only thing rotation direction affects.
+
+#### NV3007 driver
+
+QMK has no upstream NV3007 driver, so `qp_nv3007.c` provides one: it reuses Quantum Painter's generic `tft_panel`/SPI machinery (the same code path as the ST7789 driver, which is why `rules.mk` still lists `st7789_spi` under `QUANTUM_PAINTER_DRIVERS`) and only supplies the controller's own init sequence. Panel tuning knobs live in `config.h`:
+
+- `LCD_OFFSET_X`/`LCD_OFFSET_Y` — where the 142px-wide glass sits inside the controller's 168-wide RAM, in the rotated frame (currently `0`/`13`). If the image is shifted or has a garbage strip along one edge, adjust these.
+- `NV3007_INVERT` — uncomment if colors come out inverted.
+- `LCD_SPI_DIVISOR`/`LCD_SPI_MODE` — SPI clock divisor (`4`) and mode (`3`).
 
 ### Behavior
 
-| Action | Result |
-|---|---|
-| Rotate clockwise | Volume up |
-| Rotate counter-clockwise | Volume down |
-| Press encoder (SW) | Mute |
+The knob has two screens, both landscape:
 
-The OLED shows the title of whatever Chrome is playing (e.g. a YouTube video) in double-size text, centered, or scrolling horizontally when it doesn't fit. Below it is a volume bar with the host's output volume percentage (or `MUTE`) to its right. A keyboard can't read either, so `host/volume_sync.py` pushes them over QMK Raw HID whenever it changes (and every 2 s as a heartbeat). If the script isn't running, the volume shows `--%`. The display turns off after 60 s without activity to prevent burn-in (scrolling stops then too), and wakes up on any volume or track change.
+- **Menu screen** — a horizontally-scrollable row of "app" chips (the default output device as `Master`, plus every currently-playing PulseAudio/PipeWire stream — a vertical list doesn't fit once the panel is only 142px tall). Rotate the encoder to move the highlighted chip; click to open that app's screen. A small marker tags whichever chip the App screen would return to, independent of the navigation cursor.
+- **App screen** — app name and `VOL nn`/`MUTE` in a thin header row, the media title (if any) large underneath, and a 30-segment volume bar along the bottom instead of one continuous fill. Colors and decoration (flat, thick-bordered/drop-shadowed, or beveled LCD-style wells) depend on the selected theme — see [Themes](#themes) below.
+
+| Action | Menu screen | App screen |
+|---|---|---|
+| Rotate | Move selection | Adjust that app's volume |
+| Click | Open selected app | Back to menu |
+| Double-click | — | Play/pause (if the app exposes MPRIS media controls) |
+| Click and hold | — | Toggle mute |
+
+App and title text scrolls a character at a time when it doesn't fit its row. The panel blanks after 60 s without activity (encoder/click input or a host-side change) to prevent burn-in, and wakes on either. If `host/volume_sync.py` stops sending, the app list clears and the knob falls back to the menu screen.
 
 ### Host volume sync (Linux)
 
-Requires `pactl` (PulseAudio, or PipeWire with `pipewire-pulse`), `busctl` (systemd; reads Chrome's MPRIS media session) and Python 3. No other dependencies.
+Requires `pactl` (PulseAudio, or PipeWire with `pipewire-pulse`), `busctl` (systemd; reads MPRIS media sessions for titles and play/pause) and Python 3. No other dependencies. Per-app matching between a PulseAudio stream and an MPRIS player is done by normalizing both apps' names (lowercased, non-alphanumerics stripped) and comparing — good enough for common cases like a browser tab, but it's a heuristic, not a guarantee.
 
 ```sh
 # Let your user write to the knob's hidraw device
@@ -53,6 +75,22 @@ mkdir -p ~/.config/systemd/user
 cp host/volume-sync.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now volume-sync
+```
+
+#### Themes
+
+`volume_sync.py --theme {terminal,neobrutal,winamp}` picks the knob's display theme (default `terminal`); the choice is pushed to the knob once at startup and again on every reconnect, since the firmware itself doesn't persist it across power cycles.
+
+- `terminal` — the original flat green-phosphor look.
+- `neobrutal` — cream/black/orange, thick borders and hard (unblurred) drop shadows, styled after [this Figma Make concept](https://www.figma.com/make/t8KsdhbALpn6rPHxM7KQUm/Volume-Controller-UI).
+- `winamp` — a grey-blue chassis with black "LCD" wells (the header and title rows, the volume bar) sunk in via a raised/sunken 1px bevel, green readout text, and an amber accent, styled after the classic Winamp player skin. Menu chips read as raised buttons that go sunken when selected, like a pressed toolbar button.
+
+To make a theme stick across reboots, add the flag to the systemd unit before enabling it:
+
+```sh
+sed -i 's/volume_sync.py/volume_sync.py --theme neobrutal/' ~/.config/systemd/user/volume-sync.service
+systemctl --user daemon-reload
+systemctl --user restart volume-sync
 ```
 
 ## Firmware

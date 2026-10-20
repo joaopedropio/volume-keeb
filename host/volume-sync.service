@@ -1,5 +1,5 @@
 [Unit]
-Description=Push host volume to the volume-keeb OLED
+Description=Push per-app volume/media state to the volume-keeb display
 After=pipewire-pulse.service pulseaudio.service
 
 [Service]
