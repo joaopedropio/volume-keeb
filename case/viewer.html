@@ -1,3 +1,8 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>volume-keeb Case</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -22,11 +27,14 @@
 :root[data-theme="dark"] {
   --bg: #15171b; --panel: #1d2026; --mat: #0d0f12; --ink: #e6e9ed; --muted: #9aa3ae; --line: #2f343c; --accent: #6ea8ea; color-scheme: dark;
 }
-body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--body); }
+html { color-scheme: light; padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px); }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(--body); }
+[hidden] { display: none !important; }
 .page { max-width: 1180px; margin: 0 auto; padding-block: 28px 40px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 20px; }
 header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 24px; }
 h1 { font: 700 clamp(26px, 4vw, 34px)/1.1 var(--display); letter-spacing: -0.01em; margin: 0; text-wrap: balance; }
 .dims { font: 500 14px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.dims a { color: var(--accent); }
 .bench { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
 @media (max-width: 860px) { .bench { grid-template-columns: minmax(0, 1fr); } }
 .stage { display: grid; gap: 10px; min-width: 0; }
@@ -55,11 +63,12 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .bom b { font: 500 13px var(--mono); color: var(--accent); font-variant-numeric: tabular-nums; }
 .status { font-size: 13px; color: var(--muted); margin: 0; }
 </style>
-
+</head>
+<body>
 <div class="page">
   <header>
     <h1>volume-keeb Case</h1>
-    <span class="dims">88,9 × 84 × 31,8 mm · NV3007 a 60°</span>
+    <span class="dims">88,9 × 84 × 31,8 mm · NV3007 a 60° · <a href="https://github.com/joaopedropio/volume-keeb/tree/main/case">STLs e .scad</a></span>
   </header>
   <div class="bench">
     <div class="stage">
@@ -329,3 +338,5 @@ function mul(a, b) {
   return out;
 }
 </script>
+</body>
+</html>

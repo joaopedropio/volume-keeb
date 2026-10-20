@@ -95,6 +95,8 @@ systemctl --user restart volume-sync
 
 ## Case
 
+**See it in 3D: https://joaopedropio.github.io/volume-keeb/**
+
 A 3D-printed two-piece case, `case/volume_case.scad` (OpenSCAD, parametric), exported to `case/volume_case-top.stl` and `case/volume_case-base.stl`. It is about 89 x 84 x 32 mm: the screen sits behind a window in a 60° face at the front, the 48 x 22 mm metal knob sits 7 mm into a plain hole in the flat top, and the RP2040-Zero's USB-C comes out the middle of the back.
 
 Every part is held by the base. The top has no parts of its own: it comes down over everything, knob included, and takes four screws from below.
@@ -112,7 +114,7 @@ To make changes, edit the variables at the top of the `.scad`: knob size and how
 case/gen_case.sh   # needs openscad on the PATH
 ```
 
-It also exports the electronics' stand-ins to `case/view/`, for `case/viewer.html`: a WebGL 3D view with a checkbox per part and a slider that lifts the top. Browsers won't fetch the STLs from a `file://` page, so serve the folder:
+It also exports the electronics' stand-ins to `case/view/`, for `case/viewer.html`: a WebGL 3D view with a checkbox per part and a slider that lifts the top. The live copy at the link above is deployed with `case/deploy_pages.sh`, which copies the page and the STLs into the `joaopedropio.github.io` checkout (default `~/joaopedropio.github.io`, under `volume-keeb/`). Commit and push that repo afterwards. To try the page locally, serve the folder, because browsers won't fetch the STLs from a `file://` page:
 
 ```sh
 python3 -m http.server -d case 8000   # then open http://localhost:8000/viewer.html
