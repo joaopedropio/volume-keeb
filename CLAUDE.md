@@ -1,6 +1,6 @@
 # volume-keeb
 
-Volume-control knob on a Waveshare RP2040-Zero with an HW-040 rotary encoder (a KY-040 is meant to work too: same pins), running QMK. See README.md for hardware/wiring/build/flash details.
+Volume-control knob on a Waveshare RP2040-Zero with an HW-040 rotary encoder (a KY-040 is meant to work too: same pins), running QMK. README.md is the build guide for people making their own (parts, printing, wiring, flashing, assembly, host setup); `docs/DEVELOPMENT.md` holds the technical notes (driver, protocol, case internals). Keep both in step when behavior, pins or parts change.
 
 Sibling project to [single-keeyb](https://github.com/joaopedropio/single-keeyb) (a separate Space-key macropad on the same MCU). The encoder was originally prototyped on the single-keeyb board, then pulled out into this standalone project — don't merge the two back together.
 

@@ -1,163 +1,142 @@
-# volume-keeb
+# volume-keeb 🎚️
 
-A per-app volume mixer built on a Waveshare RP2040-Zero, an HW-040 (or KY-040) rotary encoder module, and a 2.79" 142x428 NV3007 SPI LCD (custom driver in `qp_nv3007.c`). Runs QMK. Sibling project to [single-keeyb](https://github.com/joaopedropio/single-keeyb), which this repo was forked from.
+A desk knob that works as a **per-app volume mixer**. Turn it to change the volume of Spotify, your browser, a game or the whole system. Click to pick an app, hold to mute, double-click to play/pause. A 2.79" bar-shaped LCD shows what's playing.
 
-The display is driven with QMK's Quantum Painter, with a two-screen app-picker UI (earlier revisions used a 1.3" OLED, then ST7789 and ILI9341 SPI panels).
+It's built from cheap parts (a Waveshare RP2040-Zero, an HW-040 rotary encoder and a 2.79" NV3007 LCD) in a 3D-printed case, and runs [QMK](https://qmk.fm). A small Linux daemon tells the knob which apps are playing and applies what you do on it.
 
-## Hardware
+**See the case in 3D: https://joaopedropio.github.io/volume-keeb/**
 
-- Waveshare RP2040-Zero
-- 1x HW-040 rotary encoder module (CLK/DT/SW/+/GND); a KY-040 has the same pins and wires the same way, but the case is only drawn for the HW-040 so far (see [Case](#case))
-- 1x 2.79" 142x428 NV3007 SPI IPS LCD (native-portrait panel, mounted/driven landscape — see below)
+This README is a step-by-step guide to building your own. If you want to change the firmware, the daemon or the case, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
-### Wiring
+## Contents
 
-| HW-040 / KY-040 pin | RP2040-Zero pin |
-|---|---|
-| CLK | GP27 |
-| DT | GP28 |
-| SW | GP29 |
-| + | 3V3 |
-| GND | GND |
+- [Features](#features-)
+- [Requirements](#requirements-)
+- [Bill of materials](#bill-of-materials-)
+- [Tools](#tools-)
+- [Step 1: Print the case](#step-1-print-the-case-)
+- [Step 2: Build the firmware](#step-2-build-the-firmware-)
+- [Step 3: Flash the board](#step-3-flash-the-board-)
+- [Step 4: Wire it up](#step-4-wire-it-up-)
+- [Step 5: Test before closing](#step-5-test-before-closing-)
+- [Step 6: Assemble the case](#step-6-assemble-the-case-)
+- [Step 7: Set up the computer](#step-7-set-up-the-computer-)
+- [Using it](#using-it-)
+- [Themes](#themes-)
+- [Troubleshooting](#troubleshooting-)
+- [Credits](#credits-)
 
-SW is wired directly to ground (no diode, no matrix) — QMK reads it as a direct pin with an internal pull-up, and it's the encoder module's only key.
+## Features [🔼](#contents)
 
-| LCD pin | RP2040-Zero pin |
-|---|---|
-| VCC | 3V3 |
-| GND | GND |
-| SCK (SCL) | GP2 |
-| MOSI (SDA) | GP3 |
-| CS | GP1 |
-| DC | GP4 |
-| RST | GP5 |
-| BLK | GP0 |
+- **Per-app volume**: every app that is playing sound gets its own entry, plus `Master` for the system's default output.
+- **Media info**: the title of what's playing (from MPRIS: Spotify, browsers, most media players) shown large on the screen.
+- **Play/pause and mute** from the knob.
+- **Three themes**: `terminal` (green phosphor), `neobrutal` (cream, black and orange, hard shadows) and `winamp` (the classic Winamp skin).
+- **Screen saver**: the screen turns off after 60 s without activity and wakes on the knob or on any change on the computer.
+- **Wakes the computer** from suspend.
+- **No drivers**: it's a plain USB HID device. The daemon uses only Python's standard library.
 
-The LCD is write-only, so `SPI_MISO_PIN` (GP16, not broken out on the board) isn't physically connected — it's only declared because the RP2040's SPI0 peripheral needs a valid pin assigned to configure. `BLK` is a plain digital GPIO (not PWM, active-high on the NV3007 module: high = backlight on) toggled by the firmware to blank the panel on the idle timeout; it isn't tied straight to 3V3.
+## Requirements [🔼](#contents)
 
-The panel is 142x428 in its native orientation, but Quantum Painter drives it rotated 90° (`QP_ROTATION_90`), so the UI itself is landscape: 428px wide by 142px tall. `LCD_PANEL_WIDTH`/`LCD_PANEL_HEIGHT` in `config.h` are the native dimensions passed to the display driver; `LCD_WIDTH`/`LCD_HEIGHT` are the rotated, effective canvas everything else in `keymap.c` lays out against. If the mounted panel ends up showing the UI upside down, flip `QP_ROTATION_90` to `QP_ROTATION_270` in `keymap.c` — that's the only thing rotation direction affects.
+> [!IMPORTANT]
+> The app mixer needs **Linux** with PulseAudio, or PipeWire with `pipewire-pulse` (the default on Ubuntu, Fedora, Arch and most current distros), plus systemd. Windows and macOS aren't supported by the daemon yet.
 
-#### NV3007 driver
+You also need:
 
-QMK has no upstream NV3007 driver, so `qp_nv3007.c` provides one: it reuses Quantum Painter's generic `tft_panel`/SPI machinery (the same code path as the ST7789 driver, which is why `rules.mk` still lists `st7789_spi` under `QUANTUM_PAINTER_DRIVERS`) and only supplies the controller's own init sequence. Panel tuning knobs live in `config.h`:
+- Access to a 3D printer (or a printing service).
+- A soldering iron. There are no connectors or pin headers: every wire is soldered straight to the pads.
+- A Linux machine to build the firmware (macOS works too for building; see [Step 2](#step-2-build-the-firmware-)).
 
-- `LCD_OFFSET_X`/`LCD_OFFSET_Y` — where the 142px-wide glass sits inside the controller's 168-wide RAM, in the rotated frame (currently `0`/`13`). If the image is shifted or has a garbage strip along one edge, adjust these.
-- `NV3007_INVERT` — uncomment if colors come out inverted.
-- `LCD_SPI_DIVISOR`/`LCD_SPI_MODE` — SPI clock divisor (`4`) and mode (`3`).
+## Bill of materials [🔼](#contents)
 
-### Behavior
-
-The knob has two screens, both landscape:
-
-- **Menu screen** — a horizontally-scrollable row of "app" chips (the default output device as `Master`, plus every currently-playing PulseAudio/PipeWire stream — a vertical list doesn't fit once the panel is only 142px tall). Rotate the encoder to move the highlighted chip; click to open that app's screen. A small marker tags whichever chip the App screen would return to, independent of the navigation cursor.
-- **App screen** — app name and `VOL nn`/`MUTE` in a thin header row, the media title (if any) large underneath, and a 30-segment volume bar along the bottom instead of one continuous fill. Colors and decoration (flat, thick-bordered/drop-shadowed, or beveled LCD-style wells) depend on the selected theme — see [Themes](#themes) below.
-
-| Action | Menu screen | App screen |
+| Part | Qty | Notes |
 |---|---|---|
-| Rotate | Move selection | Adjust that app's volume |
-| Click | Open selected app | Back to menu |
-| Double-click | — | Play/pause (if the app exposes MPRIS media controls) |
-| Click and hold | — | Toggle mute |
+| Waveshare **RP2040-Zero** | 1 | The version **without** pin headers. Clones work if they have the same size and pinout (the case is drawn around Waveshare's board). |
+| **HW-040** rotary encoder module | 1 | The 5-pin module (`CLK`, `DT`, `SW`, `+`, `GND`) with a 6 mm shaft. A KY-040 is electrically identical, but the case is only drawn for the HW-040 so far. |
+| **2.79" 142x428 NV3007 SPI IPS LCD** module | 1 | 78 x 25.9 mm bar-shaped module, 8 pads (`GND VCC SCL SDA RST DC CS BLK`). Search for "2.79 inch LCD NV3007 142x428". |
+| Metal knob, **48 mm diameter, 22 mm tall**, for a 6 mm shaft | 1 | The case's hole is sized for it (`knob_d`/`knob_h` in the `.scad` if yours is different). About 8.5 mm of shaft goes into it, so it needs a bore at least ~9 mm deep. |
+| M2 heat-set brass insert, **3 mm long, 3.5 mm outer diameter** | 8 | 4 for the top, 2 for the screen, 2 for the encoder. |
+| M2 x 5 pan-head screw | 4 | 2 for the screen, 2 for the encoder. |
+| M2 x 6 flat-head (countersunk) screw | 4 | Close the case from below. |
+| Thin silicone wire (28–30 AWG) | ~1 m | 13 wires in total. Several colors help a lot. |
+| USB-C cable | 1 | Data cable, not charge-only. |
+| Printed case: `volume_case-top.stl` + `volume_case-base.stl` | 1 set | See [Step 1](#step-1-print-the-case-). |
 
-App and title text scrolls a character at a time when it doesn't fit its row. The panel blanks after 60 s without activity (encoder/click input or a host-side change) to prevent burn-in, and wakes on either. If `host/volume_sync.py` stops sending, the app list clears and the knob falls back to the menu screen.
+## Tools [🔼](#contents)
 
-### Host volume sync (Linux)
+- Soldering iron, solder, flux.
+- A heat-set insert tip for the soldering iron (or a regular tip you don't care about).
+- Wire stripper and flush cutters.
+- Small Phillips screwdriver for M2.
+- A pin or straightened paper clip, to press BOOT/RESET through the bottom.
+- Optional: a multimeter to check for shorts, Kapton tape, tweezers.
 
-Requires `pactl` (PulseAudio, or PipeWire with `pipewire-pulse`), `busctl` (systemd; reads MPRIS media sessions for titles and play/pause) and Python 3. No other dependencies. Per-app matching between a PulseAudio stream and an MPRIS player is done by normalizing both apps' names (lowercased, non-alphanumerics stripped) and comparing — good enough for common cases like a browser tab, but it's a heuristic, not a guarantee.
+## Step 1: Print the case [🔼](#contents)
+
+Download the two STLs from the [`case/`](case/) folder:
+
+- [`volume_case-top.stl`](case/volume_case-top.stl): print with the **open side down**.
+- [`volume_case-base.stl`](case/volume_case-base.stl): print **flat**.
+
+The assembled case is about 89 x 84 x 32 mm. Use your slicer's preview to decide on supports for your printer; PLA or PETG are fine.
+
+Before printing, open the [3D view](https://joaopedropio.github.io/volume-keeb/) to see where each part goes. Tick the parts on and off and use the slider to lift the top. It's the best map you'll have during assembly.
+
+> [!TIP]
+> If your knob isn't 48 x 22 mm, or you want to change anything else, edit the variables at the top of [`case/volume_case.scad`](case/volume_case.scad) in [OpenSCAD](https://openscad.org) and run `case/gen_case.sh`. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#case).
+
+### Press in the heat-set inserts
+
+Do this **now**, before any electronics go in. It's much easier on an empty part.
+
+1. **Top (4):** the four bosses inside the top, near the corners.
+2. **Screen rib (2):** the right-hand rib behind the sloped face. These go in from the **front** (the side the screen will rest on).
+3. **Encoder pillars (2):** the two round pillars inside the rectangular frame on the base.
+
+Heat the insert with the iron and push it straight in until it's flush. Let it cool before touching it.
+
+## Step 2: Build the firmware [🔼](#contents)
+
+> [!NOTE]
+> Flash the board and test each part as you wire it. If something is wrong, it's much easier to fix before the case is closed.
+
+### Install the toolchain
+
+**Ubuntu / Debian:**
 
 ```sh
-# Let your user write to the knob's hidraw device
-sudo cp host/70-volume-keeb.rules /etc/udev/rules.d/
-sudo udevadm control --reload && sudo udevadm trigger
-
-# Run at login (the unit expects this repo at ~/volume-keeb)
-mkdir -p ~/.config/systemd/user
-cp host/volume-sync.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now volume-sync
+sudo apt install -y git python3-pip pipx gcc-arm-none-eabi libnewlib-arm-none-eabi binutils-arm-none-eabi
+pipx install qmk
+pipx ensurepath   # then open a new terminal
 ```
 
-#### Themes
-
-`volume_sync.py --theme {terminal,neobrutal,winamp}` picks the knob's display theme (default `terminal`); the choice is pushed to the knob once at startup and again on every reconnect, since the firmware itself doesn't persist it across power cycles.
-
-- `terminal` — the original flat green-phosphor look.
-- `neobrutal` — cream/black/orange, thick borders and hard (unblurred) drop shadows, styled after [this Figma Make concept](https://www.figma.com/make/t8KsdhbALpn6rPHxM7KQUm/Volume-Controller-UI).
-- `winamp` — a grey-blue chassis with black "LCD" wells (the header and title rows, the volume bar) sunk in via a raised/sunken 1px bevel, green readout text, and an amber accent, styled after the classic Winamp player skin. Menu chips read as raised buttons that go sunken when selected, like a pressed toolbar button.
-
-To make a theme stick across reboots, add the flag to the systemd unit before enabling it:
+**Arch:**
 
 ```sh
-sed -i 's/volume_sync.py/volume_sync.py --theme neobrutal/' ~/.config/systemd/user/volume-sync.service
-systemctl --user daemon-reload
-systemctl --user restart volume-sync
-```
-
-## Case
-
-**See it in 3D: https://joaopedropio.github.io/volume-keeb/**
-
-A 3D-printed two-piece case, `case/volume_case.scad` (OpenSCAD, parametric), exported to `case/volume_case-top.stl` and `case/volume_case-base.stl`. It is about 89 x 84 x 32 mm: the screen sits behind a window in a 60° face at the front, the 48 x 22 mm metal knob sits 7 mm into a plain hole in the flat top, and the RP2040-Zero's USB-C comes out the middle of the back.
-
-Every part is held by the base. The top has no parts of its own: it comes down over everything, knob included, and takes four screws from below.
-
-- **Screen:** stands on two ribs behind its ends. The right rib takes the module's two holes: M2 x 5 pan-head screws go in from the front of the board, into heat-set inserts. The left rib only props the other end.
-- **Encoder:** sits on a frame of four walls under its PCB's edges, with two pillars inside it under the PCB's holes. M2 screws go in from above (heads up) into inserts. The frame puts the knob's underside 0.5 mm above the encoder's bushing. Its right wall stands beside the pads, so solder the encoder's wires from the top of the board.
-- **RP2040-Zero:** lies upside down (buttons and USB-C toward the floor) on its own USB receptacle, with rails and a clip holding it. The clip is rigid, so put the board in tilted: far edge under the hook first, then the USB end down. **BOOT** and **RESET** are pressed with a pin through the holes marked `B` and `R` under the case.
-- **Top:** four M2 x 6 flat-head screws go in from below the base, into inserts in the top's bosses.
-
-Nothing has pin headers; solder the wires straight to the pads. You need 8 M2 heat-set inserts (3 mm long, 3.5 mm across) in all: 4 in the top, 2 in the screen rib and 2 in the encoder pillars.
-
-To make changes, edit the variables at the top of the `.scad`: knob size and how far it sits in, borders, and so on. Then regenerate:
-
-```sh
-case/gen_case.sh   # needs openscad on the PATH
-```
-
-It also exports the electronics' stand-ins to `case/view/`, for `case/viewer.html`: a WebGL 3D view with a checkbox per part and a slider that lifts the top. The live copy at the link above is deployed with `case/deploy_pages.sh`, which copies the page and the STLs into the `joaopedropio.github.io` checkout (default `~/joaopedropio.github.io`, under `volume-keeb/`). Commit and push that repo afterwards. To try the page locally, serve the folder, because browsers won't fetch the STLs from a `file://` page:
-
-```sh
-python3 -m http.server -d case 8000   # then open http://localhost:8000/viewer.html
-```
-
-The script also runs the model's two checks and fails if either finds an overlap (touching faces are fine). `part="check"` intersects the parts with stand-ins for the electronics. `part="insert"` intersects the top with everything it meets on its way down.
-
-The encoder is chosen with `encoder` in the `.scad`. Only `"hw040"` has measurements so far: they come from `hw-040-encoder-module.stp` and `hw-040-module-dimensions.webp`. A KY-040 needs its own entry in `enc_dims()` (PCB size, hole positions, shaft position, body, bushing and shaft heights) before `encoder = "ky040"` renders.
-
-## Firmware
-
-This board runs on **QMK**, not CircuitPython/KMK — CircuitPython's `usb_hid` stack has no USB remote-wakeup support, so it can't wake a suspended host on keypress ([adafruit/circuitpython#8774](https://github.com/adafruit/circuitpython/issues/8774)).
-
-The custom keyboard definition lives in this repo at `qmk/waveshare_rp2040_zero_volume/` and is meant to be symlinked into a `qmk_firmware` checkout:
-
-```sh
-git clone https://github.com/qmk/qmk_firmware.git ~/qmk_firmware
-ln -s "$(pwd)/qmk/waveshare_rp2040_zero_volume" ~/qmk_firmware/keyboards/handwired/onekey/waveshare_rp2040_zero_volume
-```
-
-### Build tools
-
-- `arm-none-eabi-gcc`, `arm-none-eabi-newlib`, `arm-none-eabi-binutils` (ARM cross toolchain)
-- `dfu-util`
-- QMK CLI (`pip install qmk`)
-
-On Arch:
-
-```sh
-sudo pacman -S --needed arm-none-eabi-gcc arm-none-eabi-newlib arm-none-eabi-binutils dfu-util
+sudo pacman -S --needed git python-pip arm-none-eabi-gcc arm-none-eabi-newlib arm-none-eabi-binutils
 pip install --user qmk
 ```
 
-On Ubuntu:
+**macOS:** `brew install qmk/qmk/qmk` installs the CLI and the toolchain.
+
+### Get QMK and this repo
 
 ```sh
-sudo apt install -y gcc-arm-none-eabi libnewlib-arm-none-eabi binutils-arm-none-eabi
-pipx install qmk
 git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/qmk/qmk_firmware.git ~/qmk_firmware
 qmk config user.qmk_home=$HOME/qmk_firmware
+
+git clone https://github.com/joaopedropio/volume-keeb.git ~/volume-keeb
 ```
 
-### Build
+Clone this repo to `~/volume-keeb`: the systemd unit in [Step 7](#step-7-set-up-the-computer-) expects it there.
+
+QMK only builds keyboards that live inside its own folder, so link this repo's keyboard definition into it:
+
+```sh
+ln -s ~/volume-keeb/qmk/waveshare_rp2040_zero_volume ~/qmk_firmware/keyboards/handwired/onekey/waveshare_rp2040_zero_volume
+```
+
+### Compile
 
 ```sh
 cd ~/qmk_firmware
@@ -166,12 +145,181 @@ qmk compile -kb handwired/onekey/waveshare_rp2040_zero_volume -km volume
 
 This produces `handwired_onekey_waveshare_rp2040_zero_volume_volume.uf2` in `~/qmk_firmware`.
 
-### Flash
+## Step 3: Flash the board [🔼](#contents)
+
+The RP2040 has a built-in bootloader that shows up as a USB drive, so flashing is just copying a file.
 
 1. Unplug the board.
-2. Plug it back in while holding the **BOOTSEL** button until it mounts as a drive named `RPI-RP2`. Inside the case, press BOOT with a pin through the hole marked `B` under the case.
-3. Copy the `.uf2` file onto that drive. The board reboots automatically into the new firmware.
+2. Hold the **BOOT** button and plug it in. Release once a drive named `RPI-RP2` appears.
+3. Copy the `.uf2` onto that drive:
+
+   ```sh
+   cp ~/qmk_firmware/handwired_onekey_waveshare_rp2040_zero_volume_volume.uf2 /media/$USER/RPI-RP2/      # Ubuntu
+   cp ~/qmk_firmware/handwired_onekey_waveshare_rp2040_zero_volume_volume.uf2 /run/media/$USER/RPI-RP2/  # Arch
+   cp ~/qmk_firmware/handwired_onekey_waveshare_rp2040_zero_volume_volume.uf2 /Volumes/RPI-RP2/          # macOS
+   ```
+
+   Or just drag it in with your file manager.
+4. The board reboots by itself into the new firmware and the drive disappears.
+
+Once it's in the case, BOOT is pressed with a pin through the hole marked **`B`** under the case (**`R`** is RESET). To re-flash later: hold B, tap R, release B.
+
+## Step 4: Wire it up [🔼](#contents)
+
+### Pinout
+
+**Encoder (HW-040):**
+
+| Encoder pin | RP2040-Zero pin |
+|---|---|
+| `CLK` | `GP27` |
+| `DT` | `GP28` |
+| `SW` | `GP29` |
+| `+` | `3V3` |
+| `GND` | `GND` |
+
+**Screen (NV3007):**
+
+| LCD pin | RP2040-Zero pin |
+|---|---|
+| `VCC` | `3V3` |
+| `GND` | `GND` |
+| `SCL` (SCK) | `GP2` |
+| `SDA` (MOSI) | `GP3` |
+| `CS` | `GP1` |
+| `DC` | `GP4` |
+| `RST` | `GP5` |
+| `BLK` | `GP0` |
+
+> [!CAUTION]
+> Power the encoder and the screen from **3V3**, not 5V. The RP2040's pins are not 5V tolerant.
+
+> [!NOTE]
+> The RP2040-Zero has one `3V3` pad and one `GND` pad, but both the encoder and the screen need them. Join each pair of wires into one (twist and tin them together, or splice them with heat-shrink) and solder that to the pad.
+
+```
+                 ┌──────────────── RP2040-Zero ────────────────┐
+  HW-040                                                    NV3007 LCD
+  CLK ───────────── GP27                 GP0 ──────────────── BLK
+  DT  ───────────── GP28                 GP1 ──────────────── CS
+  SW  ───────────── GP29                 GP2 ──────────────── SCL
+  +   ──────┬────── 3V3                  GP3 ──────────────── SDA
+  GND ───┬──┼────── GND                  GP4 ──────────────── DC
+         │  │                            GP5 ──────────────── RST
+         │  └──────────────────────────────────────────────── VCC
+         └─────────────────────────────────────────────────── GND
+```
+
+### Wire lengths and routing
+
+Use the [3D view](https://joaopedropio.github.io/volume-keeb/) to see where each module sits: the screen at the front on the sloped face, the encoder under the knob in the middle, the RP2040-Zero at the back (upside down, USB-C out of the back wall).
+
+- Leave enough slack to lift each module out of its seat while the others are mounted, but not so much that the bundle won't fit under the top. Lay the parts out in the empty base, measure, and add a couple of centimeters.
+- **Encoder:** solder its wires from the **top** of the PCB (the side with the shaft). The frame's wall sits right beside the pads underneath, so wires coming out of the bottom won't fit.
+- **Screen:** the 8 pads are on the left end of the module (seen from the front), the opposite end from the two mounting holes. Solder the wires on the back and keep the joints low.
+- **RP2040-Zero:** it lies **upside down** in the case, so the wires leave from what will be its top once mounted. Solder to the pads on the board's edge without bending the wires sharply.
+
+## Step 5: Test before closing [🔼](#contents)
+
+Before anything is screwed down, plug the board in:
+
+1. The screen lights up and shows the UI. With no daemon running yet there are no apps to pick.
+2. Do [Step 7](#step-7-set-up-the-computer-) on your computer now (or just run `~/volume-keeb/host/volume_sync.py` in a terminal after installing the udev rule). `Master` and any app playing sound appear on the screen.
+3. Turning the knob moves the selection; clicking opens the app; turning changes its volume on the computer.
+
+If something doesn't work, check [Troubleshooting](#troubleshooting-) now, while every joint is still reachable.
+
+## Step 6: Assemble the case [🔼](#contents)
+
+Everything mounts on the **base**. The top is only a cover that goes on last.
+
+1. **Screen.** Lay the module face-down on the sloped face, glass toward the window. Its right end (the one with the two holes) goes on the rib with the inserts: fix it with two **M2 x 5** pan-head screws from the front of the board. The left end just rests on the other rib.
+2. **Encoder.** Sit the PCB on the rectangular frame, shaft up, and screw it to the two pillars with two **M2 x 5** pan-head screws from above.
+3. **RP2040-Zero.** Turn it **upside down** (buttons and USB-C facing the floor). The clip is rigid, so put it in **tilted**: far edge under the clip's hook first, then lower the USB end down until the USB-C sits in the hole in the back wall.
+4. **Tuck the wires** so none sits where the top's walls or the four corner bosses will come down.
+5. **Top.** Lower the top straight down over everything, the encoder's shaft through the round hole.
+6. **Screws.** Turn it over and drive four **M2 x 6** flat-head screws through the base into the top's inserts.
+7. **Knob.** Push the knob onto the shaft. It sits 7 mm into the hole and floats just above the encoder; it shouldn't rub on anything.
+
+## Step 7: Set up the computer [🔼](#contents)
+
+The knob only shows apps while `volume_sync.py` runs on the computer. It needs `pactl`, `busctl` (both installed by default on most systemd + PipeWire/PulseAudio desktops) and Python 3. On a minimal system, `pactl` is in `pulseaudio-utils` (Debian/Ubuntu) or `libpulse` (Arch).
+
+**1. Allow your user to talk to the knob:**
 
 ```sh
-cp handwired_onekey_waveshare_rp2040_zero_volume_volume.uf2 /run/media/$USER/RPI-RP2/
+sudo cp ~/volume-keeb/host/70-volume-keeb.rules /etc/udev/rules.d/
+sudo udevadm control --reload && sudo udevadm trigger
 ```
+
+**2. Run the daemon at login:**
+
+```sh
+mkdir -p ~/.config/systemd/user
+cp ~/volume-keeb/host/volume-sync.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now volume-sync
+```
+
+The unit runs `~/volume-keeb/host/volume_sync.py`. If you cloned the repo somewhere else, edit `ExecStart` in `~/.config/systemd/user/volume-sync.service`.
+
+Check it's running with `systemctl --user status volume-sync` and its log with `journalctl --user -u volume-sync -f`.
+
+## Using it [🔼](#contents)
+
+The knob has two screens:
+
+- **Menu**: a horizontal row of apps: `Master` (your default output) plus every app that's playing sound right now. A small dot marks the app the App screen would go back to.
+- **App**: the app's name and volume (or `MUTE`) at the top, the media title (if any) in large text, and a 30-segment volume bar along the bottom.
+
+| Action | Menu | App |
+|---|---|---|
+| Turn | Move the selection | Change that app's volume (5% per step) |
+| Click | Open the selected app | Back to the menu |
+| Double-click | — | Play/pause (apps with media controls) |
+| Click and hold | — | Mute / unmute |
+
+Long names and titles scroll. If the daemon stops (or the computer sleeps), the app list clears after 5 s and the knob goes back to the menu.
+
+## Themes [🔼](#contents)
+
+| Theme | Look |
+|---|---|
+| `terminal` (default) | Flat green-phosphor terminal. |
+| `neobrutal` | Cream, black and orange, thick borders and hard drop shadows, after [this Figma concept](https://www.figma.com/make/t8KsdhbALpn6rPHxM7KQUm/Volume-Controller-UI). |
+| `winamp` | Grey-blue chassis with sunken black "LCD" wells, green text and an amber accent, after the classic Winamp skin. Menu items look like toolbar buttons that press in when selected. |
+
+The theme is set by the daemon, so it's chosen on the computer:
+
+```sh
+sed -i 's|volume_sync.py$|volume_sync.py --theme winamp|' ~/.config/systemd/user/volume-sync.service
+systemctl --user daemon-reload
+systemctl --user restart volume-sync
+```
+
+## Troubleshooting [🔼](#contents)
+
+| Symptom | What to check |
+|---|---|
+| No `RPI-RP2` drive appears | Use a data USB-C cable (not charge-only). Hold BOOT *before* plugging in. |
+| Screen stays black | `VCC`/`GND` on 3V3/GND; `BLK` on `GP0`. Wait a minute: the screen also turns off after 60 s idle, so turn the knob. |
+| Screen lights up but shows garbage or nothing | `SCL`→`GP2` and `SDA`→`GP3` (SPI only works on those pins), `CS`/`DC`/`RST` on `GP1`/`GP4`/`GP5`. Shorter wires help. |
+| Image shifted, or a noisy strip on one edge | Adjust `LCD_OFFSET_X`/`LCD_OFFSET_Y` in `qmk/.../config.h` and rebuild. |
+| Colors inverted | Uncomment `NV3007_INVERT` in `config.h` and rebuild. |
+| UI upside down | Change `QP_ROTATION_90` to `QP_ROTATION_270` in `keymaps/volume/keymap.c` and rebuild. |
+| Knob turns the wrong way | Swap the `CLK` and `DT` wires (or `pin_a`/`pin_b` in `keyboard.json`). |
+| Turning skips or jumps | Check the `CLK`/`DT` joints; the HW-040's pull-ups need `+` on 3V3. |
+| Click does nothing | `SW` on `GP29`. |
+| Screen works but no apps appear | Is the daemon running (`systemctl --user status volume-sync`)? Did you install the udev rule and replug? `journalctl --user -u volume-sync` shows errors. |
+| An app plays but isn't listed | Only apps with an active stream appear. Check `pactl list sink-inputs`. |
+| No title or play/pause for an app | The app needs MPRIS support, and its name must roughly match its audio stream's name. Check `busctl --user list \| grep mpris`. |
+
+Still stuck? There are two bring-up keymaps (`usbonly` and `diag`) described in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#diagnostic-keymaps). Open an issue with what you see.
+
+## Credits [🔼](#contents)
+
+- [MaxMix](https://github.com/rubenhenares/MaxMix): the shape of the case.
+- [dongle-slayer](https://github.com/joaopedropio/dongle-slayer): the NV3007 module's dimensions and the case and 3D-viewer style.
+- [single-keeyb](https://github.com/joaopedropio/single-keeyb): the sibling macropad this project started from.
+- [snake-dongle](https://github.com/joaopedropio/snake-dongle): this README's format.
+- [QMK](https://qmk.fm) and its Quantum Painter.
