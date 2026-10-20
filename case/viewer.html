@@ -1,0 +1,331 @@
+<title>volume-keeb Case</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;700&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* layout: one bench — the model on a dark mat, parts and the bill of hardware beside it */
+:root {
+  --bg: #eef0f2;
+  --panel: #ffffff;
+  --mat: #262a30;
+  --ink: #1b1e23;
+  --muted: #5d6570;
+  --line: #d5d9de;
+  --accent: #2f6fb8;
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --body: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #15171b; --panel: #1d2026; --mat: #0d0f12; --ink: #e6e9ed; --muted: #9aa3ae; --line: #2f343c; --accent: #6ea8ea; color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --bg: #15171b; --panel: #1d2026; --mat: #0d0f12; --ink: #e6e9ed; --muted: #9aa3ae; --line: #2f343c; --accent: #6ea8ea; color-scheme: dark;
+}
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--body); }
+.page { max-width: 1180px; margin: 0 auto; padding-block: 28px 40px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 20px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 24px; }
+h1 { font: 700 clamp(26px, 4vw, 34px)/1.1 var(--display); letter-spacing: -0.01em; margin: 0; text-wrap: balance; }
+.dims { font: 500 14px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.bench { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+@media (max-width: 860px) { .bench { grid-template-columns: minmax(0, 1fr); } }
+.stage { display: grid; gap: 10px; min-width: 0; }
+canvas { display: block; width: 100%; height: min(62vh, 560px); min-height: 300px; background: var(--mat); border-radius: 6px; touch-action: none; cursor: grab; }
+canvas:active { cursor: grabbing; }
+.hint { margin: 0; color: var(--muted); font-size: 13px; }
+aside { display: grid; gap: 16px; min-width: 0; }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; display: grid; gap: 10px; }
+h2 { margin: 0; font: 600 11px var(--body); text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); }
+.parts { display: grid; gap: 6px; }
+.part { display: grid; grid-template-columns: auto 12px 1fr; align-items: center; gap: 10px; cursor: pointer; padding: 3px 0; }
+.part input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.part input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.swatch { width: 12px; height: 12px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(127,127,127,.35); }
+.part small { display: block; color: var(--muted); font-size: 12px; line-height: 1.35; }
+.lift { display: grid; gap: 4px; }
+.lift label { display: flex; justify-content: space-between; font-size: 14px; }
+.lift output { font: 500 13px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.lift input { width: 100%; accent-color: var(--accent); }
+.buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+button { font: 500 13px var(--body); color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 5px 10px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bom { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 14px; }
+.bom li { display: grid; grid-template-columns: 2.2em 1fr; gap: 6px; }
+.bom b { font: 500 13px var(--mono); color: var(--accent); font-variant-numeric: tabular-nums; }
+.status { font-size: 13px; color: var(--muted); margin: 0; }
+</style>
+
+<div class="page">
+  <header>
+    <h1>volume-keeb Case</h1>
+    <span class="dims">88,9 × 84 × 31,8 mm · NV3007 a 60°</span>
+  </header>
+  <div class="bench">
+    <div class="stage">
+      <canvas id="view" aria-label="O case do volume-keeb em 3D"></canvas>
+      <p class="hint" id="hint">Arraste para girar, use a roda para dar zoom e clique duas vezes para voltar ao início.</p>
+    </div>
+    <aside>
+      <section>
+        <h2>Peças</h2>
+        <div class="parts" id="parts"></div>
+        <div class="buttons">
+          <button type="button" id="all">Mostrar tudo</button>
+          <button type="button" id="inside">Só a base montada</button>
+        </div>
+      </section>
+      <section>
+        <h2>Tampo</h2>
+        <div class="lift">
+          <label for="lift">Levantar o tampo <output id="liftv">0 mm</output></label>
+          <input type="range" id="lift" min="0" max="60" step="1" value="0">
+        </div>
+      </section>
+      <section>
+        <h2>Ferragens</h2>
+        <ul class="bom">
+          <li><b>8×</b><span>Heat insert M2, 3 mm × Ø3,5 (4 no tampo, 2 na nervura do display, 2 nos pilares do encoder)</span></li>
+          <li><b>4×</b><span>M2 × 6 cabeça chata, por baixo da base, no tampo</span></li>
+          <li><b>2×</b><span>M2 × 5 cabeça panela, pela frente do display</span></li>
+          <li><b>2×</b><span>M2 cabeça panela, por cima do encoder (com arruela: os furos são Ø3,5)</span></li>
+        </ul>
+      </section>
+      <p class="status" id="status">Carregando o modelo…</p>
+    </aside>
+  </div>
+</div>
+
+<script>
+// The case as case/gen_case.sh exports it from case/volume_case.scad (mm, Z up,
+// put together; the front faces -Y), drawn with plain WebGL like dongle-slayer's
+// case3d.js. A checkbox per part takes it out of the view.
+const PARTS = [
+  ['top', 'Tampo', 'Sai por cima do knob; 4 parafusos por baixo', [['volume_case-top.stl', '#3d4148']]],
+  ['base', 'Base', 'Segura todos os componentes', [['volume_case-base.stl', '#7b8089']]],
+  ['screen', 'Display NV3007', '2,79", 142×428, a 60°', [['view/screen-pcb.stl', '#1f70bf'], ['view/screen-glass.stl', '#121417'],
+    ['view/screen-parts.stl', '#34373c'], ['view/screen-metal.stl', '#c9ccd0']]],
+  ['enc', 'Encoder HW-040', 'Em dois pilares com heat inserts', [['view/enc-pcb.stl', '#1f5fbf'], ['view/enc-body.stl', '#8d9096'], ['view/enc-metal.stl', '#c9ccd0']]],
+  ['knob', 'Knob', 'Ø48 × 22, 7 mm dentro do tampo', [['view/knob.stl', '#b4b8be']]],
+  ['zero', 'RP2040-Zero', 'De cabeça para baixo, USB-C atrás', [['view/zero-pcb.stl', '#2b45c4'], ['view/zero-parts.stl', '#202226'],
+    ['view/zero-usb.stl', '#c9ccd0'], ['view/zero-buttons.stl', '#eeeeee']]],
+];
+
+const VS = `attribute vec3 p; attribute vec3 n;
+uniform mat4 mvp; uniform vec3 shift; varying vec3 vn;
+void main() { vn = n; gl_Position = mvp * vec4(p + shift, 1.0); }`;
+const FS = `precision mediump float;
+varying vec3 vn;
+uniform vec3 color; uniform vec3 key; uniform vec3 back;
+void main() {
+  vec3 N = normalize(gl_FrontFacing ? vn : -vn);  // the inside shows through the window and the knob's hole
+  gl_FragColor = vec4(color * (0.34 + 0.6 * max(dot(N, key), 0.0) + 0.16 * max(dot(N, back), 0.0)), 1.0);
+}`;
+const HOME = { yaw: -0.55, pitch: 0.5, zoom: 1 };
+
+const canvas = document.getElementById('view');
+const status = document.getElementById('status');
+const shown = new Set(PARTS.map(([name]) => name));
+const boxes = new Map();
+const list = document.getElementById('parts');
+for (const [name, label, note, files] of PARTS) {
+  const row = document.createElement('label');
+  row.className = 'part';
+  const box = document.createElement('input');
+  box.type = 'checkbox'; box.checked = true; box.id = 'part-' + name;
+  box.addEventListener('change', () => { box.checked ? shown.add(name) : shown.delete(name); draw(); });
+  const sw = document.createElement('span');
+  sw.className = 'swatch'; sw.style.background = files[0][1];
+  const text = document.createElement('span');
+  text.textContent = label;
+  const small = document.createElement('small');
+  small.textContent = note;
+  text.append(small);
+  row.append(box, sw, text);
+  list.append(row);
+  boxes.set(name, box);
+}
+function only(names) {
+  for (const [name, box] of boxes) { box.checked = names.includes(name); box.checked ? shown.add(name) : shown.delete(name); }
+  draw();
+}
+document.getElementById('all').addEventListener('click', () => only(PARTS.map(([n]) => n)));
+document.getElementById('inside').addEventListener('click', () => only(['base', 'screen', 'enc', 'zero']));
+const liftInput = document.getElementById('lift');
+const liftOut = document.getElementById('liftv');
+let lift = 0;
+liftInput.addEventListener('input', () => { lift = +liftInput.value; liftOut.textContent = lift + ' mm'; draw(); });
+if (matchMedia('(pointer: coarse)').matches)
+  document.getElementById('hint').textContent = 'Arraste para girar, faça pinça para dar zoom e toque duas vezes para voltar ao início.';
+
+const gl = canvas.getContext('webgl', { antialias: true });
+const meshes = []; // { part, color, n, pos, nor }
+const view = { ...HOME };
+const center = [44.5, 42, 16];
+let radius = 60;
+let draw = () => {};
+
+if (!gl) {
+  status.textContent = 'Este navegador não consegue mostrar 3D (WebGL desligado).';
+} else {
+  const prog = program(gl);
+  const A = { p: gl.getAttribLocation(prog, 'p'), n: gl.getAttribLocation(prog, 'n') };
+  const U = Object.fromEntries(['mvp', 'shift', 'color', 'key', 'back'].map((k) => [k, gl.getUniformLocation(prog, k)]));
+  gl.enable(gl.DEPTH_TEST);
+
+  const upload = (part, color, pos) => {
+    const buf = (data) => { const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW); return b; };
+    meshes.push({ part, color: rgb(color), n: pos.length / 3, pos: buf(pos), nor: buf(normals(pos)) });
+  };
+
+  let pending = PARTS.reduce((k, p) => k + p[3].length, 0), failed = 0;
+  const done = () => {
+    if (--pending) return;
+    status.textContent = failed ? `${failed} arquivo(s) não carregaram. Recarregue a página.` : '';
+    status.hidden = !failed;
+  };
+  for (const [name, , , files] of PARTS) for (const [file, color] of files) {
+    fetch(file).then((r) => { if (!r.ok) throw new Error(file); return r.arrayBuffer(); }).then((data) => {
+      const pos = parseSTL(data);
+      if (name === 'top') frame(pos);
+      upload(name, color, pos);
+      draw();
+    }).catch(() => { failed++; }).finally(done);
+  }
+
+  let queued = false;
+  draw = () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; render(); });
+  };
+  function render() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.round(canvas.clientWidth * dpr), hh = Math.round(canvas.clientHeight * dpr);
+    if (!w || !hh) return;
+    if (canvas.width !== w || canvas.height !== hh) { canvas.width = w; canvas.height = hh; }
+    gl.viewport(0, 0, w, hh);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+    const dist = radius * 2.8 * view.zoom;
+    const cp = Math.cos(view.pitch);
+    const dir = [cp * Math.sin(view.yaw), -cp * Math.cos(view.yaw), Math.sin(view.pitch)]; // toward the eye
+    const target = [center[0], center[1], center[2] + lift / 2];
+    const eye = target.map((c, k) => c + dir[k] * dist);
+    const mvp = mul(perspective(0.55, w / hh, dist / 20, dist * 4), lookAt(eye, target, [0, 0, 1]));
+    const right = norm([dir[1], -dir[0], 0]);
+    gl.useProgram(prog);
+    gl.uniformMatrix4fv(U.mvp, false, mvp);
+    gl.uniform3fv(U.key, norm(dir.map((d, k) => d + [0, 0, 0.9][k] - right[k] * 0.5)));
+    gl.uniform3fv(U.back, norm(dir.map((d, k) => -d + right[k] * 0.6)));
+    for (const m of meshes) {
+      if (!shown.has(m.part)) continue;
+      gl.bindBuffer(gl.ARRAY_BUFFER, m.pos);
+      gl.enableVertexAttribArray(A.p);
+      gl.vertexAttribPointer(A.p, 3, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, m.nor);
+      gl.enableVertexAttribArray(A.n);
+      gl.vertexAttribPointer(A.n, 3, gl.FLOAT, false, 0, 0);
+      gl.uniform3fv(U.shift, [0, 0, m.part === 'top' ? lift : 0]);
+      gl.uniform3fv(U.color, m.color);
+      gl.drawArrays(gl.TRIANGLES, 0, m.n);
+    }
+  }
+
+  // turning and zooming
+  const ptrs = new Map();
+  let pinch = 0;
+  canvas.addEventListener('pointerdown', (e) => { try { canvas.setPointerCapture(e.pointerId); } catch { /* gone already */ } ptrs.set(e.pointerId, [e.clientX, e.clientY]); pinch = spread(); });
+  canvas.addEventListener('pointermove', (e) => {
+    const was = ptrs.get(e.pointerId);
+    if (!was) return;
+    ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+    if (ptrs.size === 1) {
+      view.yaw -= (e.clientX - was[0]) * 0.01;
+      view.pitch = Math.max(-1.3, Math.min(1.5, view.pitch + (e.clientY - was[1]) * 0.01));
+    } else {
+      const now = spread();
+      if (pinch && now) zoomBy(pinch / now);
+      pinch = now;
+    }
+    draw();
+  });
+  const up = (e) => { ptrs.delete(e.pointerId); pinch = spread(); };
+  canvas.addEventListener('pointerup', up);
+  canvas.addEventListener('pointercancel', up);
+  canvas.addEventListener('wheel', (e) => { e.preventDefault(); zoomBy(Math.exp(e.deltaY * 0.0015)); draw(); }, { passive: false });
+  canvas.addEventListener('dblclick', () => { Object.assign(view, HOME); draw(); });
+  function spread() {
+    if (ptrs.size < 2) return 0;
+    const [a, b] = [...ptrs.values()];
+    return Math.hypot(a[0] - b[0], a[1] - b[1]);
+  }
+  function zoomBy(f) { view.zoom = Math.max(0.3, Math.min(2.5, view.zoom * f)); }
+
+  new ResizeObserver(draw).observe(canvas);
+}
+
+function frame(pos) {
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < pos.length; i++) { lo[i % 3] = Math.min(lo[i % 3], pos[i]); hi[i % 3] = Math.max(hi[i % 3], pos[i]); }
+  for (let k = 0; k < 3; k++) center[k] = (lo[k] + hi[k]) / 2;
+  radius = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) / 2;
+}
+
+function program(gl) {
+  const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
+  const p = gl.createProgram();
+  gl.attachShader(p, sh(gl.VERTEX_SHADER, VS));
+  gl.attachShader(p, sh(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(p);
+  return p;
+}
+
+// An STL file, ASCII (as OpenSCAD writes it) or binary, as a flat list of
+// triangle corners.
+function parseSTL(data) {
+  const dv = new DataView(data);
+  if (data.byteLength >= 84 && 84 + dv.getUint32(80, true) * 50 === data.byteLength) {
+    const n = dv.getUint32(80, true), out = new Float32Array(n * 9);
+    for (let i = 0; i < n; i++) for (let k = 0; k < 9; k++) out[i * 9 + k] = dv.getFloat32(84 + i * 50 + 12 + k * 4, true);
+    return out;
+  }
+  const text = new TextDecoder().decode(data), out = [];
+  for (const m of text.matchAll(/vertex\s+(\S+)\s+(\S+)\s+(\S+)/g)) out.push(+m[1], +m[2], +m[3]);
+  return new Float32Array(out);
+}
+
+// a face's normal for each of its corners, from its winding (flat shading)
+function normals(pos) {
+  const out = new Float32Array(pos.length);
+  for (let i = 0; i < pos.length; i += 9) {
+    const a = [pos[i + 3] - pos[i], pos[i + 4] - pos[i + 1], pos[i + 5] - pos[i + 2]];
+    const b = [pos[i + 6] - pos[i], pos[i + 7] - pos[i + 1], pos[i + 8] - pos[i + 2]];
+    const n = norm([a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]);
+    for (let k = 0; k < 9; k++) out[i + k] = n[k % 3];
+  }
+  return out;
+}
+
+function rgb(hex) { return [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255); }
+function norm(v) { const l = Math.hypot(...v) || 1; return v.map((x) => x / l); }
+
+// column-major 4x4 matrices, as WebGL takes them
+function perspective(fovy, aspect, near, far) {
+  const f = 1 / Math.tan(fovy / 2), nf = 1 / (near - far);
+  return [f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, (far + near) * nf, -1, 0, 0, 2 * far * near * nf, 0];
+}
+function lookAt(eye, target, up) {
+  const z = norm(eye.map((e, k) => e - target[k]));
+  const x = norm([up[1] * z[2] - up[2] * z[1], up[2] * z[0] - up[0] * z[2], up[0] * z[1] - up[1] * z[0]]);
+  const y = [z[1] * x[2] - z[2] * x[1], z[2] * x[0] - z[0] * x[2], z[0] * x[1] - z[1] * x[0]];
+  const d = (v) => -(v[0] * eye[0] + v[1] * eye[1] + v[2] * eye[2]);
+  return [x[0], y[0], z[0], 0, x[1], y[1], z[1], 0, x[2], y[2], z[2], 0, d(x), d(y), d(z), 1];
+}
+function mul(a, b) {
+  const out = new Array(16).fill(0);
+  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) for (let k = 0; k < 4; k++) out[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k];
+  return out;
+}
+</script>
