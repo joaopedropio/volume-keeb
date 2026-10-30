@@ -1,0 +1,712 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>volume-keeb settings</title>
+<link rel="icon" href="/favicon.png">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0f0f13;
+    --panel: #18181f;
+    --panel-2: #20202a;
+    --line: #2c2c38;
+    --text: #e8e8ef;
+    --muted: #9a9aab;
+    --accent: #ff4fb8;
+    --accent-2: #3ce6ff;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --bad: #f87171;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      color-scheme: light;
+      --bg: #f4f4f7;
+      --panel: #ffffff;
+      --panel-2: #f0f0f5;
+      --line: #dedee6;
+      --text: #1b1b24;
+      --muted: #64647a;
+      --accent: #d6198a;
+      --accent-2: #0891b2;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+    position: sticky; top: 0; z-index: 2;
+  }
+  header img { width: 28px; height: 28px; }
+  header h1 { font-size: 17px; margin: 0; font-weight: 650; letter-spacing: .2px; }
+  .pill {
+    margin-left: auto;
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 4px 12px; border-radius: 999px;
+    background: var(--panel-2); border: 1px solid var(--line);
+    font-size: 13px; color: var(--muted);
+  }
+  .pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
+  .pill.ok::before { background: var(--ok); }
+  .pill.warn::before { background: var(--warn); }
+  main {
+    max-width: 1080px; margin: 0 auto; padding: 24px;
+    display: grid; gap: 24px;
+  }
+  section {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+  h2 { font-size: 15px; margin: 0 0 4px; font-weight: 650; }
+  .hint { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+
+  /* preview */
+  .preview-wrap {
+    background: #000; border-radius: 8px; padding: 14px;
+    display: flex; justify-content: center;
+    border: 1px solid var(--line);
+  }
+  canvas#screen {
+    width: 100%; max-width: 856px; aspect-ratio: 428 / 142;
+    image-rendering: pixelated;
+    border-radius: 3px;
+  }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button {
+    border: 0; background: transparent; color: var(--muted);
+    padding: 6px 14px; font: inherit; font-size: 13px; cursor: pointer;
+  }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { background: var(--panel-2); color: var(--text); font-weight: 600; }
+  .preview-bar { justify-content: space-between; margin-top: 12px; }
+
+  /* theme */
+  .presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 20px; }
+  .preset {
+    border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2);
+    padding: 10px; cursor: pointer; text-align: left; color: var(--text); font: inherit;
+  }
+  .preset.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .preset .chips { display: flex; gap: 3px; margin-bottom: 8px; }
+  .preset .chips span { flex: 1; height: 18px; border-radius: 3px; border: 1px solid rgba(127,127,127,.25); }
+  .preset b { font-size: 13px; font-weight: 600; text-transform: capitalize; }
+  .label { font-size: 13px; color: var(--muted); margin: 0 0 6px; }
+  .colors { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin-top: 18px; }
+  .color {
+    display: grid; grid-template-columns: 44px 1fr; gap: 10px; align-items: center;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+  }
+  .color input[type=color] {
+    width: 44px; height: 36px; padding: 0; border: 1px solid var(--line); border-radius: 6px;
+    background: none; cursor: pointer;
+  }
+  .color input[type=color]::-webkit-color-swatch-wrapper { padding: 2px; }
+  .color input[type=color]::-webkit-color-swatch { border: 0; border-radius: 4px; }
+  .color b { display: block; font-size: 13px; font-weight: 600; }
+  .color small { color: var(--muted); font-size: 12px; }
+  .color code { font-size: 12px; color: var(--muted); }
+
+  /* fonts */
+  .fonts { display: grid; gap: 12px; }
+  .font {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 14px;
+    display: grid; gap: 10px;
+  }
+  .font-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: baseline; }
+  .font-head b { font-size: 14px; }
+  .font-head span { color: var(--muted); font-size: 13px; }
+  .font .sample {
+    background: #000; border-radius: 6px; padding: 10px; min-height: 40px;
+    display: flex; align-items: center; overflow-x: auto;
+  }
+  .font .sample img { image-rendering: pixelated; max-width: none; }
+  .font .sample em { color: #888; font-size: 13px; }
+  .file {
+    display: inline-flex; align-items: center; gap: 8px;
+    border: 1px dashed var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer;
+    font-size: 13px; color: var(--muted); max-width: 100%;
+  }
+  .file input { display: none; }
+  .file span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  select, .btn {
+    font: inherit; font-size: 13px; color: var(--text);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px;
+  }
+  .btn { cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .progress { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .progress div { height: 100%; width: 0; background: var(--accent-2); transition: width .2s; }
+  .msg { font-size: 13px; color: var(--muted); min-height: 1em; }
+  .msg.bad { color: var(--bad); }
+  .msg.ok { color: var(--ok); }
+
+  @media (max-width: 640px) {
+    header { padding: 12px 16px; }
+    main { padding: 16px; gap: 16px; }
+    section { padding: 16px; }
+    .preview-wrap { padding: 8px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <img src="/favicon.png" alt="">
+  <h1>volume-keeb</h1>
+  <span class="pill" id="status">Connecting…</span>
+</header>
+
+<main>
+  <section>
+    <h2>Preview</h2>
+    <p class="hint">Changes are sent to the knob as you make them. This is an approximation; the knob itself has the final word.</p>
+    <div class="preview-wrap"><canvas id="screen" width="428" height="142"></canvas></div>
+    <div class="row preview-bar">
+      <div class="seg" id="screen-pick">
+        <button data-screen="app" class="on">App screen</button>
+        <button data-screen="menu">Menu</button>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Theme</h2>
+    <p class="hint">Start from a preset, then change any color or the style.</p>
+    <div class="presets" id="presets"></div>
+    <p class="label">Style</p>
+    <div class="seg" id="decor"></div>
+    <div class="colors" id="colors"></div>
+  </section>
+
+  <section>
+    <h2>Fonts</h2>
+    <p class="hint">Upload any TrueType or OpenType font. It's resized to fit each spot on the screen, converted on this computer and stored in the knob's flash, so it stays after a reboot. Characters outside basic ASCII (accents and so on) show as their plain letters.</p>
+    <div class="fonts" id="fonts"></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+
+const COLOR_INFO = {
+  bg: ["Background", "The screen behind everything"],
+  well: ["Panel", "Inside boxes and sunken readouts"],
+  fg: ["Text", "Main text, borders, highlights"],
+  dim: ["Secondary", "App names, song titles in the list, unlit bar"],
+  accent: ["Accent", "Lit volume bar, selected row"],
+  mute: ["Muted", "The MUTE label"],
+};
+const DECOR_LABEL = { flat: "Flat", boxed: "Boxed", bevel: "Bevel", neon: "Neon" };
+const BUILTIN_FONT = '"DejaVu Sans Mono", Menlo, Consolas, monospace';
+
+let state = null;
+let theme = null;        // {preset, decor, colors}
+let screenKind = "app";
+const fontFaces = {};    // slot -> CSS family for the preview, when custom
+
+// ---- colors, the way QMK converts them (quantum/color.c) ------------------
+
+function hsvToRgb([h, s, v]) {
+  if (s === 0) return [v, v, v];
+  const region = Math.floor(h * 6 / 255);
+  const remainder = (h * 2 - region * 85) * 3;
+  const p = (v * (255 - s)) >> 8;
+  const q = (v * (255 - ((s * remainder) >> 8))) >> 8;
+  const t = (v * (255 - ((s * (255 - remainder)) >> 8))) >> 8;
+  switch (region) {
+    case 6: case 0: return [v, t, p];
+    case 1: return [q, v, p];
+    case 2: return [p, v, t];
+    case 3: return [p, q, v];
+    case 4: return [t, p, v];
+    default: return [v, p, q];
+  }
+}
+function rgbToHsv([r, g, b]) {
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  let h = 0;
+  if (d) {
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h /= 6;
+    if (h < 0) h += 1;
+  }
+  return [Math.round(h * 255) % 256, max ? Math.round(d / max * 255) : 0, max];
+}
+const hex = rgb => "#" + rgb.map(c => c.toString(16).padStart(2, "0")).join("");
+const unhex = s => [1, 3, 5].map(i => parseInt(s.slice(i, i + 2), 16));
+const css = hsv => hex(hsvToRgb(hsv));
+
+// ---- the preview: keymap.c's drawing, on a canvas --------------------------
+
+const W = 428, H = 142, MARGIN = 6, TEXT_W = W - 2 * MARGIN;
+const ROW1_Y = 10, TITLE_Y = 40, BAR_Y = 106, BAR_H = 20, BAR_SEGMENTS = 30, BAR_GAP = 3;
+const BAR_SEG_W = Math.floor((TEXT_W - (BAR_SEGMENTS - 1) * BAR_GAP) / BAR_SEGMENTS);
+const LIST_ROWS = 4, LIST_ROW_H = 35, LIST_BOX_H = 32, LIST_TOP = Math.floor((H - LIST_ROWS * LIST_ROW_H) / 2);
+const LIST_PAD = 8, ACTIVE_DOT = 5, BOX_SHADOW = 2, BOX_BORDER = 1;
+const BEVEL_DARK = [0, 0, 10];
+const SLOT_H = { ui: 13, title: 27, list: 24 };
+const DEMO = {
+  app: { name: "Spotify", volume: 80, title: "Daft Punk - Harder, Better, Faster" },
+  list: [["Master", ""], ["Spotify", "Daft Punk - Harder, Better, Faster"], ["Firefox", "Lo-fi beats to relax/study to"], ["Discord", ""]],
+  cursor: 1,
+};
+
+const cv = document.getElementById("screen");
+const ctx = cv.getContext("2d");
+
+function rect(x0, y0, x1, y1, hsv, filled = true) {
+  ctx.fillStyle = css(hsv);
+  if (filled) { ctx.fillRect(x0, y0, x1 - x0 + 1, y1 - y0 + 1); return; }
+  ctx.fillRect(x0, y0, x1 - x0 + 1, 1);
+  ctx.fillRect(x0, y1, x1 - x0 + 1, 1);
+  ctx.fillRect(x0, y0, 1, y1 - y0 + 1);
+  ctx.fillRect(x1, y0, 1, y1 - y0 + 1);
+}
+const line = (x0, y0, x1, y1, hsv) => rect(Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1), hsv);
+
+function fontFor(slot) {
+  const h = SLOT_H[slot];
+  const custom = state && state.fonts[slot].custom;
+  if (custom && fontFaces[slot]) return `${custom.size}px "${fontFaces[slot]}"`;
+  return `${Math.round(h * 0.95)}px ${BUILTIN_FONT}`;
+}
+function textWidth(slot, s) { ctx.font = fontFor(slot); return Math.ceil(ctx.measureText(s).width); }
+function fit(slot, s, maxW) {
+  if (textWidth(slot, s) <= maxW) return s;
+  let n = s.length;
+  while (n > 0 && textWidth(slot, s.slice(0, n) + "..") > maxW) n--;
+  return s.slice(0, n) + "..";
+}
+// Like qp_drawtext_recolor(): the glyph cells are filled with `bg`.
+function text(x, y, slot, s, fg, bg, clipW) {
+  const h = SLOT_H[slot];
+  const w = Math.min(textWidth(slot, s), clipW ?? W);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+  rect(x, y, x + w - 1, y + h - 1, bg);
+  ctx.font = fontFor(slot);
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = css(fg);
+  ctx.fillText(s, x, y + h / 2 + 1);
+  ctx.restore();
+}
+function neonHue(t, i, n) {
+  const h = t.fg[0] + Math.trunc((t.accent[0] - t.fg[0]) * i / (n || 1));
+  return ((h % 256) + 256) % 256;
+}
+
+function box(x0, y0, x1, y1, t, decor, selected, sunken) {
+  if (decor === "bevel") {
+    rect(x0, y0, x1, y1, selected ? t.accent : sunken ? t.well : t.bg);
+    if (sunken || selected) {
+      line(x0, y0, x1, y0, BEVEL_DARK); line(x0, y0, x0, y1, BEVEL_DARK);
+      line(x0, y1, x1, y1, t.fg); line(x1, y0, x1, y1, t.fg);
+    } else {
+      line(x0, y0, x1, y0, t.fg); line(x0, y0, x0, y1, t.fg);
+      line(x0, y1, x1, y1, BEVEL_DARK); line(x1, y0, x1, y1, BEVEL_DARK);
+    }
+  } else if (decor === "neon") {
+    rect(x0, y0, x1, y1, t.well);
+    if (selected) {
+      rect(x0, y0, x1, y1, [t.accent[0], t.accent[1], Math.floor(t.accent[2] / 3)], false);
+      rect(x0 + 1, y0 + 1, x1 - 1, y1 - 1, t.accent, false);
+    } else {
+      rect(x0 + 1, y0 + 1, x1 - 1, y1 - 1, [t.dim[0], t.dim[1], Math.floor(t.dim[2] / 2)], false);
+    }
+  } else if (decor === "boxed") {
+    rect(x0 + BOX_SHADOW, y0 + BOX_SHADOW, x1 + BOX_SHADOW, y1 + BOX_SHADOW, t.fg);
+    rect(x0, y0, x1, y1, t.fg);
+    rect(x0 + BOX_BORDER, y0 + BOX_BORDER, x1 - BOX_BORDER, y1 - BOX_BORDER, selected ? t.accent : t.bg);
+  } else if (selected) {
+    rect(x0, y0, x1, y1, t.accent);
+  } else {
+    rect(x0, y0, x1, y1, t.dim, false);
+  }
+}
+
+function drawApp(t, decor) {
+  const a = DEMO.app;
+  rect(0, 0, W - 1, H - 1, t.bg);
+  if (decor === "bevel") box(0, 0, W - 1, TITLE_Y - 1, t, decor, false, true);
+  const vol = `VOL ${a.volume}`, pad = 3;
+  const volW = textWidth("ui", vol);
+  const bx1 = W - MARGIN - 1, volX = bx1 - BOX_BORDER - pad - volW, bx0 = volX - pad - BOX_BORDER;
+  if (decor === "boxed") box(bx0, ROW1_Y - pad, bx1, ROW1_Y + SLOT_H.ui - 1 + pad + BOX_BORDER, t, decor, false, false);
+  text(volX, ROW1_Y, "ui", vol, t.fg, t.well);
+  const nameW = bx0 - MARGIN - 4;
+  rect(MARGIN, ROW1_Y, MARGIN + nameW - 1, ROW1_Y + SLOT_H.ui - 1, t.well);
+  text(MARGIN, ROW1_Y, "ui", a.name, t.dim, t.well, nameW);
+  if (decor === "neon") {
+    for (let x = MARGIN; x < W - MARGIN; x += 4) {
+      const h = neonHue(t, x - MARGIN, W - 2 * MARGIN);
+      rect(x, TITLE_Y - 8, x + 3, TITLE_Y - 8, [h, 255, 255]);
+      rect(x, TITLE_Y - 7, x + 3, TITLE_Y - 7, [h, 255, 90]);
+    }
+  }
+  if (decor === "bevel") box(MARGIN - 2, TITLE_Y, W - MARGIN + 1, TITLE_Y + SLOT_H.title + 1, t, decor, false, true);
+  rect(MARGIN, TITLE_Y, MARGIN + TEXT_W - 1, TITLE_Y + SLOT_H.title - 1, t.well);
+  text(MARGIN, TITLE_Y, "title", a.title, t.fg, t.well, TEXT_W);
+
+  const lit = Math.floor(a.volume * BAR_SEGMENTS / 100);
+  const actualW = BAR_SEGMENTS * BAR_SEG_W + (BAR_SEGMENTS - 1) * BAR_GAP;
+  const startX = MARGIN + Math.floor((TEXT_W - actualW) / 2);
+  rect(0, BAR_Y - 4, W - 1, H - 1, t.bg);
+  if (decor !== "flat") box(startX - 3, BAR_Y - 3, startX + actualW - 1 + 3, BAR_Y + BAR_H - 1 + 3, t, decor, false, true);
+  for (let i = 0; i < BAR_SEGMENTS; i++) {
+    const x = startX + i * (BAR_SEG_W + BAR_GAP);
+    let c;
+    if (i < lit && decor === "neon") c = [neonHue(t, i, BAR_SEGMENTS - 1), 230, 255];
+    else if (i < lit) c = t.accent;
+    else if (decor === "neon") c = [t.dim[0], t.dim[1], Math.floor(t.dim[2] / 3)];
+    else c = t.dim;
+    rect(x, BAR_Y, x + BAR_SEG_W - 1, BAR_Y + BAR_H - 1, c);
+  }
+}
+
+function drawMenu(t, decor) {
+  rect(0, 0, W - 1, H - 1, t.bg);
+  const x0 = MARGIN, x1 = W - MARGIN - 1 - BOX_SHADOW, textX = x0 + LIST_PAD;
+  const textW = x1 - LIST_PAD - ACTIVE_DOT - LIST_PAD - textX;
+  DEMO.list.forEach(([name, song], row) => {
+    const sel = row === DEMO.cursor, filled = sel && decor !== "neon";
+    const y0 = LIST_TOP + row * LIST_ROW_H;
+    if (sel || (decor !== "flat" && decor !== "neon")) box(x0, y0, x1, y0 + LIST_BOX_H - 1, t, decor, sel, false);
+    if (row === DEMO.cursor) {
+      const dx = x1 - LIST_PAD - ACTIVE_DOT + 1, dy = y0 + Math.floor((LIST_BOX_H - ACTIVE_DOT) / 2);
+      rect(dx, dy, dx + ACTIVE_DOT - 1, dy + ACTIVE_DOT - 1, filled ? t.bg : t.fg);
+    }
+    const ty = y0 + Math.floor((LIST_BOX_H - SLOT_H.list) / 2);
+    const shown = fit("list", name, textW), nameW = textWidth("list", shown);
+    if (filled) text(textX, ty, "list", shown, t.bg, t.accent);
+    else if (sel) text(textX, ty, "list", shown, t.accent, t.well);
+    else text(textX, ty, "list", shown, t.fg, t.bg);
+    if (song && nameW < textW) {
+      const s = fit("list", " - " + song, textW - nameW);
+      if (filled) text(textX + nameW, ty, "list", s, t.bg, t.accent);
+      else if (sel) text(textX + nameW, ty, "list", s, t.fg, t.well);
+      else text(textX + nameW, ty, "list", s, t.dim, t.bg);
+    }
+  });
+}
+
+function draw() {
+  if (!theme) return;
+  (screenKind === "app" ? drawApp : drawMenu)(theme.colors, theme.decor);
+}
+
+// ---- API --------------------------------------------------------------------
+
+async function api(method, path, body, headers = {}) {
+  const res = await fetch(path, {
+    method,
+    body,
+    headers: method === "GET" ? headers : { "X-Volume-Keeb": "1", ...headers },
+  });
+  let data = null;
+  try { data = await res.json(); } catch { /* not JSON */ }
+  if (!res.ok) throw new Error((data && data.error) || `${res.status} ${res.statusText}`);
+  return data;
+}
+
+let saveTimer = null;
+function saveTheme() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    api("PUT", "/api/theme", JSON.stringify(theme), { "Content-Type": "application/json" })
+      .catch(e => setStatus("bad", `Couldn't save: ${e.message}`));
+  }, 120);
+}
+
+// ---- theme controls -------------------------------------------------------
+
+function renderPresets() {
+  const box = document.getElementById("presets");
+  box.innerHTML = "";
+  for (const [name, p] of Object.entries(state.presets)) {
+    const b = document.createElement("button");
+    b.className = "preset" + (theme.preset === name ? " on" : "");
+    const chips = document.createElement("div");
+    chips.className = "chips";
+    for (const f of ["bg", "fg", "dim", "accent"]) {
+      const s = document.createElement("span");
+      s.style.background = css(p.colors[f]);
+      chips.append(s);
+    }
+    const label = document.createElement("b");
+    label.textContent = name;
+    b.append(chips, label);
+    b.onclick = () => {
+      theme = { preset: name, decor: p.decor, colors: structuredClone(p.colors) };
+      renderTheme(); draw(); saveTheme();
+    };
+    box.append(b);
+  }
+}
+
+function renderDecor() {
+  const seg = document.getElementById("decor");
+  seg.innerHTML = "";
+  for (const d of state.decors) {
+    const b = document.createElement("button");
+    b.textContent = DECOR_LABEL[d] || d;
+    b.className = theme.decor === d ? "on" : "";
+    b.onclick = () => { theme.decor = d; theme.preset = ""; renderTheme(); draw(); saveTheme(); };
+    seg.append(b);
+  }
+}
+
+function renderColors() {
+  const box = document.getElementById("colors");
+  box.innerHTML = "";
+  for (const f of state.color_fields) {
+    const [label, desc] = COLOR_INFO[f] || [f, ""];
+    const row = document.createElement("label");
+    row.className = "color";
+    const input = document.createElement("input");
+    input.type = "color";
+    input.value = css(theme.colors[f]);
+    const info = document.createElement("div");
+    info.innerHTML = `<b></b><small></small> <code></code>`;
+    info.querySelector("b").textContent = label;
+    info.querySelector("small").textContent = desc;
+    const code = info.querySelector("code");
+    code.textContent = input.value;
+    input.oninput = () => {
+      theme.colors[f] = rgbToHsv(unhex(input.value));
+      theme.preset = "";
+      code.textContent = input.value;
+      renderPresets(); draw(); saveTheme();
+    };
+    row.append(input, info);
+    box.append(row);
+  }
+}
+
+function renderTheme() { renderPresets(); renderDecor(); renderColors(); }
+
+// ---- fonts -------------------------------------------------------------------
+
+async function loadFontFace(slot) {
+  const custom = state.fonts[slot].custom;
+  if (!custom) { delete fontFaces[slot]; return; }
+  const family = `vk-${slot}-${custom.crc}`;
+  if (fontFaces[slot] === family) return;
+  try {
+    const face = new FontFace(family, `url(/api/fonts/${slot}/source?v=${custom.crc})`);
+    document.fonts.add(await face.load());
+    fontFaces[slot] = family;
+  } catch { delete fontFaces[slot]; }
+}
+
+const fontUi = {};  // slot -> elements and the picked file
+
+function describe(slot) {
+  const f = state.fonts[slot];
+  if (!f.custom) return "Built-in (DejaVu Sans Mono)";
+  const fmt = { mono2: "1-bit", mono4: "2-bit", mono16: "4-bit" }[f.custom.format] || f.custom.format;
+  const kb = f.custom.bytes ? ` · ${(f.custom.bytes / 1024).toFixed(1)} kB` : "";
+  return `${f.custom.name} · ${fmt} · ${f.custom.size} px${kb}`;
+}
+
+function showSample(slot) {
+  const ui = fontUi[slot], f = state.fonts[slot];
+  ui.sample.innerHTML = "";
+  if (ui.file) {
+    fetch(`/api/fonts/${slot}/preview.png?format=${ui.format.value}`, { method: "POST", body: ui.file, headers: { "X-Volume-Keeb": "1" } })
+      .then(async res => {
+        if (!res.ok) throw new Error((await res.json()).error);
+        const img = new Image();
+        img.src = URL.createObjectURL(await res.blob());
+        ui.sample.innerHTML = ""; ui.sample.append(img);
+        setMsg(slot, "Not uploaded yet: this is how it will look.", "");
+      })
+      .catch(e => { ui.sample.innerHTML = "<em>Can't use this font</em>"; setMsg(slot, e.message, "bad"); });
+  } else if (f.custom) {
+    const img = new Image();
+    img.src = `/api/fonts/${slot}/preview.png?v=${f.custom.crc}`;
+    ui.sample.append(img);
+  } else {
+    ui.sample.innerHTML = `<em>Built-in font</em>`;
+  }
+}
+
+function setMsg(slot, text, kind) {
+  const m = fontUi[slot].msg;
+  m.textContent = text;
+  m.className = "msg" + (kind ? " " + kind : "");
+}
+
+function renderFonts() {
+  const box = document.getElementById("fonts");
+  box.innerHTML = "";
+  for (const [slot, f] of Object.entries(state.fonts)) {
+    const card = document.createElement("div");
+    card.className = "font";
+    card.innerHTML = `
+      <div class="font-head"><b></b><span class="cur"></span></div>
+      <div class="sample"></div>
+      <div class="row">
+        <label class="file"><input type="file" accept=".ttf,.otf,.ttc,font/ttf,font/otf"><span>Choose a font file…</span></label>
+        <select></select>
+        <button class="btn primary up" disabled>Upload to knob</button>
+        <button class="btn reset">Use built-in</button>
+      </div>
+      <div class="progress" hidden><div></div></div>
+      <div class="msg"></div>`;
+    card.querySelector("b").textContent = `${f.label} · ${f.height} px tall`;
+    const ui = {
+      cur: card.querySelector(".cur"),
+      sample: card.querySelector(".sample"),
+      input: card.querySelector("input"),
+      fileLabel: card.querySelector(".file span"),
+      format: card.querySelector("select"),
+      upload: card.querySelector(".up"),
+      reset: card.querySelector(".reset"),
+      progress: card.querySelector(".progress"),
+      bar: card.querySelector(".progress div"),
+      msg: card.querySelector(".msg"),
+      file: null,
+    };
+    fontUi[slot] = ui;
+    for (const [k, label] of Object.entries(state.formats)) {
+      const o = document.createElement("option");
+      o.value = k; o.textContent = label;
+      ui.format.append(o);
+    }
+    ui.format.value = (f.custom && f.custom.format) || "mono16";
+    ui.cur.textContent = describe(slot);
+    ui.reset.disabled = !f.custom;
+    ui.input.onchange = () => {
+      ui.file = ui.input.files[0] || null;
+      ui.fileLabel.textContent = ui.file ? ui.file.name : "Choose a font file…";
+      ui.upload.disabled = !ui.file;
+      showSample(slot);
+    };
+    ui.format.onchange = () => { if (ui.file) showSample(slot); else if (f.custom) ui.upload.disabled = false; };
+    ui.upload.onclick = () => uploadFont(slot);
+    ui.reset.onclick = () => resetFont(slot);
+    box.append(card);
+    showSample(slot);
+  }
+}
+
+async function refreshFonts(slot) {
+  state = await api("GET", "/api/state");
+  await loadFontFace(slot);
+  const ui = fontUi[slot];
+  ui.file = null; ui.input.value = ""; ui.fileLabel.textContent = "Choose a font file…";
+  ui.upload.disabled = true;
+  ui.cur.textContent = describe(slot);
+  ui.reset.disabled = !state.fonts[slot].custom;
+  showSample(slot);
+  draw();
+}
+
+async function uploadFont(slot) {
+  const ui = fontUi[slot];
+  let body = ui.file, name = ui.file && ui.file.name;
+  if (!body) {  // re-uploading the current font in another format
+    body = await (await fetch(`/api/fonts/${slot}/source`)).blob();
+    name = state.fonts[slot].custom.name;
+  }
+  ui.upload.disabled = ui.reset.disabled = true;
+  ui.progress.hidden = false; ui.bar.style.width = "0";
+  setMsg(slot, state.connected ? "Converting and uploading…" : "Converting…", "");
+  const poll = setInterval(async () => {
+    try {
+      const s = await api("GET", "/api/state");
+      ui.bar.style.width = `${Math.round(s.fonts[slot].job.progress * 100)}%`;
+    } catch { /* next tick */ }
+  }, 300);
+  try {
+    await api("POST", `/api/fonts/${slot}?format=${ui.format.value}&name=${encodeURIComponent(name)}`, body);
+    await refreshFonts(slot);
+    setMsg(slot, state.connected ? "On the knob." : "Saved; it goes to the knob when it's plugged in.", "ok");
+  } catch (e) {
+    setMsg(slot, e.message, "bad");
+    ui.upload.disabled = false;
+    ui.reset.disabled = !state.fonts[slot].custom;
+  } finally {
+    clearInterval(poll);
+    ui.progress.hidden = true;
+  }
+}
+
+async function resetFont(slot) {
+  try {
+    await api("DELETE", `/api/fonts/${slot}`);
+    await refreshFonts(slot);
+    setMsg(slot, "Back to the built-in font.", "ok");
+  } catch (e) {
+    setMsg(slot, e.message, "bad");
+  }
+}
+
+// ---- status ------------------------------------------------------------------
+
+function setStatus(kind, text) {
+  const el = document.getElementById("status");
+  el.className = "pill " + kind;
+  el.textContent = text;
+}
+
+function showConnection(s) {
+  if (!s.connected) setStatus("bad", "Knob not connected");
+  else if (s.fonts_supported === false) setStatus("warn", "Connected · firmware too old for fonts");
+  else setStatus("ok", "Knob connected");
+}
+
+async function poll() {
+  try {
+    const s = await api("GET", "/api/state");
+    state.connected = s.connected;
+    state.fonts_supported = s.fonts_supported;
+    showConnection(s);
+  } catch {
+    setStatus("bad", "volume-keeb isn't running");
+  }
+}
+
+document.getElementById("screen-pick").onclick = e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  screenKind = b.dataset.screen;
+  for (const x of e.currentTarget.children) x.classList.toggle("on", x === b);
+  draw();
+};
+
+(async function init() {
+  try {
+    state = await api("GET", "/api/state");
+  } catch {
+    setStatus("bad", "volume-keeb isn't running");
+    return;
+  }
+  theme = structuredClone(state.theme);
+  showConnection(state);
+  renderTheme();
+  renderFonts();
+  await Promise.all(Object.keys(state.fonts).map(loadFontFace));
+  await document.fonts.ready;
+  draw();
+  setInterval(poll, 2000);
+})();
+</script>
+</body>
+</html>

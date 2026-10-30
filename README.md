@@ -22,6 +22,7 @@ This README is a step-by-step guide to building your own. If you want to change 
 - [Step 6: Assemble the case](#step-6-assemble-the-case-)
 - [Step 7: Set up the computer](#step-7-set-up-the-computer-)
 - [Using it](#using-it-)
+- [Settings page](#settings-page-)
 - [Themes](#themes-)
 - [Troubleshooting](#troubleshooting-)
 - [Credits](#credits-)
@@ -29,17 +30,18 @@ This README is a step-by-step guide to building your own. If you want to change 
 ## Features [🔼](#contents)
 
 - **Per-app volume**: every app that is playing sound gets its own entry, plus `Master` for the system's default output.
-- **Media info**: the title of what's playing (from MPRIS: Spotify, browsers, most media players) shown large on the screen.
+- **Media info**: the title of what's playing (from MPRIS on Linux, the media overlay's sessions on Windows: Spotify, browsers, most media players) shown large on the screen.
 - **Play/pause and mute** from the knob.
-- **Four themes**: `neon` (synthwave), `terminal` (green phosphor), `neobrutal` (cream, black and orange, hard shadows) and `winamp` (the classic Winamp skin).
-- **Screen saver**: the screen turns off after 30 s without activity and wakes on the knob or on any change on the computer.
+- **Themes, colors and fonts from a settings page**: four preset themes, `neon` (synthwave), `terminal` (green phosphor), `neobrutal` (cream, black and orange, hard shadows) and `winamp` (the classic Winamp skin), any color you like on top, and your own TrueType/OpenType fonts. The page runs on your computer and opens from a tray icon, like Jellyfin's.
+- **Screen saver**: after 30 s without touching the knob, the screen plays an endless synthwave drive (a car on a road through a striped sea, palm trees going by, a city in front of the sun). Turning or pressing the knob brings the UI back; that first touch does nothing else. The screen only goes dark while the computer is suspended.
 - **Wakes the computer** from suspend.
-- **No drivers**: it's a plain USB HID device. The daemon uses only Python's standard library.
+- **Linux and Windows.**
+- **No drivers**: it's a plain USB HID device.
 
 ## Requirements [🔼](#contents)
 
 > [!IMPORTANT]
-> The app mixer needs **Linux** with PulseAudio, or PipeWire with `pipewire-pulse` (the default on Ubuntu, Fedora, Arch and most current distros), plus systemd. Windows and macOS aren't supported by the daemon yet.
+> The app mixer runs on **Linux** with PulseAudio, or PipeWire with `pipewire-pulse` (the default on Ubuntu, Fedora, Arch and most current distros), plus systemd; and on **Windows 10/11**. macOS isn't supported yet.
 
 You also need:
 
@@ -128,7 +130,7 @@ qmk config user.qmk_home=$HOME/qmk_firmware
 git clone https://github.com/joaopedropio/volume-keeb.git ~/volume-keeb
 ```
 
-Clone this repo to `~/volume-keeb`: the systemd unit in [Step 7](#step-7-set-up-the-computer-) expects it there.
+Clone this repo (anywhere; `~/volume-keeb` in the examples).
 
 QMK only builds keyboards that live inside its own folder, so link this repo's keyboard definition into it:
 
@@ -217,7 +219,7 @@ Use the [3D view](https://joaopedropio.github.io/volume-keeb/) to see where each
 Before anything is screwed down, plug the board in:
 
 1. The screen lights up and shows the UI. With no daemon running yet there are no apps to pick.
-2. Do [Step 7](#step-7-set-up-the-computer-) on your computer now (or just run `~/volume-keeb/host/volume_sync.py` in a terminal after installing the udev rule). `Master` and any app playing sound appear on the screen.
+2. Do [Step 7](#step-7-set-up-the-computer-) on your computer now. `Master` and any app playing sound appear on the screen.
 3. Turning the knob moves the selection; clicking opens the app; turning changes its volume on the computer.
 
 If something doesn't work, check [Troubleshooting](#troubleshooting-) now, while every joint is still reachable.
@@ -236,27 +238,48 @@ Everything mounts on the **base**. The top is only a cover that goes on last.
 
 ## Step 7: Set up the computer [🔼](#contents)
 
-The knob only shows apps while `volume_sync.py` runs on the computer. It needs `pactl`, `busctl` (both installed by default on most systemd + PipeWire/PulseAudio desktops) and Python 3. On a minimal system, `pactl` is in `pulseaudio-utils` (Debian/Ubuntu) or `libpulse` (Arch).
+The knob only shows apps while volume-keeb's host app runs on the computer. It sits in the background with a tray icon; **Settings** in the icon's menu (or <http://localhost:8137/>) opens the settings page in your browser.
 
-**1. Allow your user to talk to the knob:**
+### Linux
 
-```sh
-sudo cp ~/volume-keeb/host/70-volume-keeb.rules /etc/udev/rules.d/
-sudo udevadm control --reload && sudo udevadm trigger
-```
-
-**2. Run the daemon at login:**
+In a terminal:
 
 ```sh
-mkdir -p ~/.config/systemd/user
-cp ~/volume-keeb/host/volume-sync.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now volume-sync
+git clone https://github.com/joaopedropio/volume-keeb.git ~/volume-keeb
+~/volume-keeb/install.sh
 ```
 
-The unit runs `~/volume-keeb/host/volume_sync.py`. If you cloned the repo somewhere else, edit `ExecStart` in `~/.config/systemd/user/volume-sync.service`.
+It asks for your password once, then:
 
-Check it's running with `systemctl --user status volume-sync` and its log with `journalctl --user -u volume-sync -f`.
+1. installs what the app needs (Python 3, Pillow, `pactl`, and the tray icon's pystray + AppIndicator) with `apt`, `pacman` or `dnf`;
+2. installs a udev rule so your user can talk to the knob without root;
+3. starts the app now and at every login (a systemd user service, `volume-sync`);
+4. adds **volume-keeb settings** to your app menu, and opens the settings page.
+
+Plug the knob in (or replug it) and your apps show up on the screen. The knob icon in the tray and the app menu entry both open the settings page; so does <http://localhost:8137/>.
+
+The tray icon needs a desktop with a system tray: GNOME needs the AppIndicator extension, sway needs waybar's `tray` module. Without one, everything else works the same.
+
+- **Update**: `cd ~/volume-keeb && git pull && ./install.sh`
+- **Uninstall**: `~/volume-keeb/install.sh --uninstall`
+- **Logs**: `journalctl --user -u volume-sync -f`
+
+### Windows
+
+Build `volume-keeb.exe` once, with [Python](https://www.python.org/downloads/) 3.10 or newer installed. In PowerShell, from the repo's `host` folder:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build_windows.ps1
+```
+
+Run `host\dist\volume-keeb.exe` (copy it anywhere you like first). The knob icon shows up in the tray; tick **Start with Windows** in its menu to have it run at login. Windows needs no driver or permission setup for the knob.
+
+## Settings page [🔼](#contents)
+
+- **Theme**: pick a preset, then change any of its six colors (background, panel, text, secondary, accent, muted) or its style (flat, boxed, bevel, neon). Changes show on the knob as you make them.
+- **Fonts**: the header, the song title and the menu list each take their own font. Choose a `.ttf`/`.otf` file and a bit depth (1-bit for pixel fonts, 2- or 4-bit for smooth ones), check the preview and upload it. The app sizes it to fit, converts it and stores it in the knob's flash, where it stays across reboots and firmware updates. **Use built-in** goes back to the original font. Only basic ASCII is shown; accented letters lose their accents.
+
+Settings are saved on the computer (`~/.config/volume-keeb` or `%APPDATA%\volume-keeb`) and sent to the knob whenever it's plugged in, so a knob moved to another computer takes that computer's settings.
 
 ## Using it [🔼](#contents)
 
@@ -283,20 +306,14 @@ Long app names scroll. If the daemon stops (or the computer sleeps), the app lis
 | `neobrutal` | Cream, black and orange, thick borders and hard drop shadows, after [this Figma concept](https://www.figma.com/make/t8KsdhbALpn6rPHxM7KQUm/Volume-Controller-UI). |
 | `winamp` | Grey-blue chassis with sunken black "LCD" wells, green text and an amber accent, after the classic Winamp skin. Menu items look like toolbar buttons that press in when selected. |
 
-The theme is set by the daemon, so it's chosen on the computer:
-
-```sh
-sed -i 's|volume_sync.py$|volume_sync.py --theme winamp|' ~/.config/systemd/user/volume-sync.service
-systemctl --user daemon-reload
-systemctl --user restart volume-sync
-```
+Pick one on the [settings page](#settings-page-), or from a terminal with `volume_sync.py --theme winamp` (saved like a pick on the page).
 
 ## Troubleshooting [🔼](#contents)
 
 | Symptom | What to check |
 |---|---|
 | No `RPI-RP2` drive appears | Use a data USB-C cable (not charge-only). Hold BOOT *before* plugging in. |
-| Screen stays black | `VCC`/`GND` on 3V3/GND; `BLK` on `GP0`. Wait a minute: the screen also turns off after 30 s idle, so turn the knob. |
+| Screen stays black | `VCC`/`GND` on 3V3/GND; `BLK` on `GP0`. The screen also goes dark while the computer is suspended, so wake it. |
 | Screen lights up but shows garbage or nothing | `SCL`→`GP2` and `SDA`→`GP3` (SPI only works on those pins), `CS`/`DC`/`RST` on `GP1`/`GP4`/`GP5`. Shorter wires help. |
 | Image shifted, or a noisy strip on one edge | Adjust `LCD_OFFSET_X`/`LCD_OFFSET_Y` in `qmk/.../config.h` and rebuild. |
 | Colors inverted | Uncomment `NV3007_INVERT` in `config.h` and rebuild. |
@@ -304,16 +321,17 @@ systemctl --user restart volume-sync
 | Knob turns the wrong way | Swap the `CLK` and `DT` wires (or `pin_a`/`pin_b` in `keyboard.json`). |
 | Turning skips or jumps | Check the `CLK`/`DT` joints; the HW-040's pull-ups need `+` on 3V3. |
 | Click does nothing | `SW` on `GP29`. |
-| Screen works but no apps appear | Is the daemon running (`systemctl --user status volume-sync`)? Did you install the udev rule and replug? `journalctl --user -u volume-sync` shows errors. |
+| Screen works but no apps appear | Is the host app running (`systemctl --user status volume-sync`, or the tray icon on Windows)? On Linux, did you install the udev rule and replug? `journalctl --user -u volume-sync` shows errors. |
+| Settings page says the firmware is too old for fonts | Re-flash the knob ([Step 3](#step-3-flash-the-board-)). |
+| No tray icon (Linux) | Make sure your desktop has a tray (see [Step 7](#linux)), then `systemctl --user restart volume-sync`. The page still works at <http://localhost:8137/>. |
 | An app plays but isn't listed | Only apps with an active stream appear. Check `pactl list sink-inputs`. |
-| No title or play/pause for an app | The app needs MPRIS support, and its name must roughly match its audio stream's name. Check `busctl --user list \| grep mpris`. |
+| No title or play/pause for an app | Linux: the app needs MPRIS support, and its name must roughly match its audio stream's name; check `busctl --user list \| grep mpris`. Windows: the app must show up in the media overlay (the volume keys' flyout). |
 
 Still stuck? There are two bring-up keymaps (`usbonly` and `diag`) described in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#diagnostic-keymaps). Open an issue with what you see.
 
 ## Credits [🔼](#contents)
 
 - [MaxMix](https://github.com/rubenhenares/MaxMix): the shape of the case.
-- [dongle-slayer](https://github.com/joaopedropio/dongle-slayer): the NV3007 module's dimensions and the case and 3D-viewer style.
 - [single-keeyb](https://github.com/joaopedropio/single-keeyb): the sibling macropad this project started from.
 - [snake-dongle](https://github.com/joaopedropio/snake-dongle): this README's format.
 - [QMK](https://qmk.fm) and its Quantum Painter.

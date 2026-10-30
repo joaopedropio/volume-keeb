@@ -18,7 +18,7 @@ srcs = [str(QMK / "quantum/painter" / f) for f in
 srcs += [str(QMK / "drivers/painter/generic" / f) for f in
          ("qp_surface_common.c", "qp_surface_rgb565.c", "qp_surface_mono1bpp.c", "qp_surface_rgb888.c")]
 srcs += [str(QMK / "quantum/color.c"), str(QMK / "quantum/unicode/utf8.c"), str(QMK / "drivers/painter/comms/qp_comms_dummy.c")]
-srcs += [str(KB / "graphics/font_ui.qff.c"), str(KB / "graphics/font_big.qff.c"), str(KB / "graphics/font_list.qff.c"), str(HERE / "sim.c")]
+srcs += [str(KB / "graphics/font_ui.qff.c"), str(KB / "graphics/font_big.qff.c"), str(KB / "graphics/font_list.qff.c"), str(HERE / "sim.c"), str(HERE / "font_store_sim.c")]
 exe = out / "sim"
 cmd = ["gcc", "-O1", "-w", "-o", str(exe),
        "-DQUANTUM_PAINTER_ENABLE", "-DQUANTUM_PAINTER_DUMMY_COMMS_ENABLE", "-DQUANTUM_PAINTER_SURFACE_ENABLE",

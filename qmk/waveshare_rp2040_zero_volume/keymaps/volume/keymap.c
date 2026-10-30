@@ -14,6 +14,7 @@
 #include "graphics/font_ui.qff.h"
 #include "graphics/font_big.qff.h"
 #include "graphics/font_list.qff.h"
+#include "font_store.h"
 
 enum custom_keycodes {
     ENC_CLICK = SAFE_RANGE,
@@ -36,22 +37,45 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 //                    data[3..] = chunk. Only sent for apps with has_media set.
 //     APP_END_CMD    data[1] = app count (confirms APP_BEGIN); swaps the
 //                    staged apps into the active list atomically.
-//   Host -> device, whenever the configured theme changes (see --theme in
-//   volume_sync.py) and once right after it (re)connects:
-//     THEME_CMD      data[1] = theme id, indexing into `themes[]` below
+//   Host -> device, the look (set on the host's settings page), whenever it
+//   changes and once right after the host (re)connects:
+//     THEME_CMD      data[1] = theme id, copies `themes[]` entry as the palette
+//     PALETTE_CMD    data[1..18] = bg, well, fg, dim, accent, mute as H,S,V
+//                    triples (theme_t's field order), data[19] = decor_t
+//   Host -> device, one font upload into a font_store.h slot (0 = font_ui,
+//   1 = font_big, 2 = font_list); multi-byte numbers are little-endian:
+//     FONT_BEGIN_CMD data[1] = slot, data[2..5] = QFF length, data[6..9] =
+//                    its CRC-32. Erases the slot (up to ~1 s); replies.
+//     FONT_DATA_CMD  data[1] = slot, data[2..4] = offset, data[5] = n,
+//                    data[6..] = n bytes. In order, no reply.
+//     FONT_END_CMD   data[1] = slot. Checks the CRC and loads it; replies.
+//     FONT_CLEAR_CMD data[1] = slot. Back to the built-in font; replies.
+//     FONT_QUERY_CMD replies FONT_INFO_CMD.
 //   Host -> device, from `volume_sync.py --bootloader` (flash.sh):
 //     BOOTLOADER_CMD reboots into the RP2040's BOOTSEL bootloader, so the
 //                    board can be re-flashed without pressing BOOT/RESET.
 //   Device -> host, one control action for the app currently shown/selected:
 //     CTRL_CMD       data[1] = app id, data[2] = action (0 = set volume to
 //                    data[3]%, 1 = toggle mute, 2 = play/pause), data[3] = value
+//   Device -> host, replies to the font commands:
+//     FONT_STATUS_CMD data[1] = slot, data[2] = FONT_OK / FONT_ERR_*
+//     FONT_INFO_CMD  data[1] = FONT_SLOTS, then each slot's CRC-32 (0 = the
+//                    built-in font) from data[2], 4 bytes apiece
 #define APP_BEGIN_CMD 0x60
 #define APP_ENTRY_CMD 0x61
 #define APP_END_CMD 0x62
 #define TITLE_CMD 0x54 // 'T'
 #define THEME_CMD 0x63
 #define BOOTLOADER_CMD 0x64
+#define PALETTE_CMD 0x65
+#define FONT_BEGIN_CMD 0x66
+#define FONT_DATA_CMD 0x67
+#define FONT_END_CMD 0x68
+#define FONT_CLEAR_CMD 0x69
+#define FONT_QUERY_CMD 0x6A
 #define CTRL_CMD 0x70
+#define FONT_STATUS_CMD 0x71
+#define FONT_INFO_CMD 0x72
 
 #define ACTION_SET_VOLUME 0
 #define ACTION_TOGGLE_MUTE 1
@@ -85,10 +109,11 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 //   DECOR_BEVEL  Winamp-style: raised/sunken 1px bevel edges, with `well`
 //                as the sunken "LCD readout" background (distinct from
 //                `bg`, the chassis color chips/space sit on).
-// `themes[]`/`THEME_COUNT` is the index space `--theme` on the host picks
-// from.
+// `themes[]` are the presets THEME_CMD picks from; the host can also send
+// any palette and decor with PALETTE_CMD. Either way it lands in `theme`,
+// which is all the drawing code looks at.
 // ---------------------------------------------------------------------
-typedef enum { DECOR_FLAT, DECOR_BOXED, DECOR_BEVEL, DECOR_NEON } decor_t;
+typedef enum { DECOR_FLAT, DECOR_BOXED, DECOR_BEVEL, DECOR_NEON, DECOR_COUNT } decor_t;
 
 typedef struct {
     uint8_t bg_h, bg_s, bg_v;              // chassis / screen background
@@ -111,7 +136,8 @@ static const theme_t themes[THEME_COUNT] = {
     // 3: neon -- synthwave: deep violet, cyan text, hot-pink accent, glowing outlines
     {190, 235, 22, 190, 235, 22, 128, 200, 255, 190, 120, 150, 222, 210, 255, 10, 230, 255, DECOR_NEON},
 };
-static uint8_t current_theme = 3;
+#define DEFAULT_THEME 3
+static theme_t theme;
 
 // Expands to `t->field_h, t->field_v, t->field_s` for use as the trailing
 // HSV args of qp_rect()/qp_drawtext_recolor(), the same way the HSV_* macros
@@ -138,7 +164,6 @@ static bool    receiving_apps;
 
 static bool     host_seen;
 static uint32_t host_last_seen;
-static uint32_t host_last_change;
 
 typedef enum { SCREEN_MENU, SCREEN_APP } screen_t;
 static screen_t screen      = SCREEN_MENU;
@@ -169,7 +194,11 @@ static uint32_t click_press_start;
 static bool     click_pending;
 static uint32_t click_pending_time;
 
-static bool display_on = true;
+static bool display_on = true; // false only while the host is suspended
+
+static bool saver_on;
+static bool saver_swallow_release; // the click that stopped it does nothing else
+static void stop_saver(void);
 
 // Everything is drawn into `lcd`, a full-screen RGB565 framebuffer, and only
 // the rectangle of pixels that actually changed is sent to `panel` (see
@@ -186,6 +215,18 @@ static painter_font_handle_t font_list; // the menu's app list
 #define UI_CHAR_H 13
 #define BIG_CHAR_H 27
 #define LIST_CHAR_H 24
+
+// Each font is the built-in one unless the host uploaded a replacement into
+// its font_store.h slot. The layout is fixed, so a replacement must have the
+// same line height; the host renders it to fit. Glyphs may be any width up
+// to TICKER_PAD.
+static painter_font_handle_t *const font_handles[FONT_SLOTS] = {&font_ui, &font_big, &font_list};
+static const uint8_t *const         font_builtin[FONT_SLOTS] = {font_font_ui, font_font_big, font_font_list};
+static const uint8_t                font_height[FONT_SLOTS]  = {UI_CHAR_H, BIG_CHAR_H, LIST_CHAR_H};
+#define FONT_BIG_SLOT 1
+// Byte offset of a QFF file's line height: block header (5), magic (3),
+// version (1), file size and its complement (4 + 4).
+#define QFF_LINE_HEIGHT_OFFSET 17
 #define MARGIN 6
 #define TEXT_W (LCD_WIDTH - 2 * MARGIN)
 
@@ -219,7 +260,12 @@ static painter_font_handle_t font_list; // the menu's app list
 static uint16_t         ticker_buf[TICKER_SURF_W * BIG_CHAR_H];
 static uint16_t         ticker_out[TEXT_W * BIG_CHAR_H];
 static painter_device_t ticker_surface;
-static uint16_t         ticker_glyph_w;
+// font_big's width of each printable ASCII glyph (titles are ASCII only).
+static uint8_t big_glyph_w[0x7F - 0x20];
+
+static uint8_t big_w(char c) {
+    return (c >= 0x20 && c < 0x7F) ? big_glyph_w[c - 0x20] : 0;
+}
 
 static void send_ctrl(uint8_t app_id, uint8_t action, uint8_t value) {
     uint8_t buf[RAW_EPSIZE] = {0};
@@ -231,7 +277,7 @@ static void send_ctrl(uint8_t app_id, uint8_t action, uint8_t value) {
 }
 
 static void lcd_clear_region(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
-    const theme_t *t = &themes[current_theme];
+    const theme_t *t = &theme;
     qp_rect(lcd, x0, y0, x1, y1, CT(bg), true);
 }
 
@@ -317,7 +363,7 @@ static void fit_text(const char *src, char *out, size_t out_size, painter_font_h
 // `offset` is the per-field scroll position owned by the caller; color is
 // passed as an HSV_* triple (e.g. HSV_GREEN) or CT(field).
 static void draw_marquee(uint16_t x, uint16_t y, uint16_t w, uint16_t h, painter_font_handle_t font, const char *text, uint16_t offset, uint8_t fg_h, uint8_t fg_s, uint8_t fg_v) {
-    const theme_t *t = &themes[current_theme];
+    const theme_t *t = &theme;
     qp_rect(lcd, x, y, x + w - 1, y + h - 1, CT(well), true);
     if (!text[0]) return;
     uint16_t full_w = qp_textwidth(font, text);
@@ -352,7 +398,7 @@ static uint8_t neon_hue(const theme_t *t, uint16_t i, uint16_t n) {
 // just the VOL/MUTE text; the beveled theme sinks the whole row into one
 // LCD-style well, closer to how Winamp's own time/info readouts read.
 static void draw_header(void) {
-    const theme_t *t = &themes[current_theme];
+    const theme_t *t = &theme;
     app_t         *a = &apps[active_app];
     lcd_clear_region(0, 0, LCD_WIDTH - 1, TITLE_Y - 1);
     if (t->decor == DECOR_BEVEL) {
@@ -403,21 +449,22 @@ static const char *active_title(void) {
 
 // The big song title, at `title_scroll_offset` pixels into its trip from the
 // right edge to the left; dims along with everything else while muted.
-// font_big is monospaced, so whole glyphs off the left are skipped by index.
+// Whole glyphs already off the left are skipped, and the ones past the right.
 static void draw_ticker(void) {
-    const theme_t *t    = &themes[current_theme];
+    const theme_t *t    = &theme;
     const char    *text = active_title();
     qp_rect(ticker_surface, 0, 0, TICKER_SURF_W - 1, BIG_CHAR_H - 1, CT(well), true);
 
     size_t  len   = strlen(text);
     int32_t x     = (int32_t)TEXT_W - title_scroll_offset;
     size_t  first = 0;
-    if (x < 0) {
-        first = (size_t)(-x) / ticker_glyph_w;
-        x += (int32_t)(first * ticker_glyph_w);
+    while (first < len && x + big_w(text[first]) <= 0) {
+        x += big_w(text[first]);
+        first++;
     }
-    size_t n = 0;
-    while (first + n < len && x + (int32_t)(n * ticker_glyph_w) < TEXT_W) n++;
+    size_t  n     = 0;
+    int32_t end_x = x;
+    while (first + n < len && end_x < TEXT_W) end_x += big_w(text[first + n++]);
     if (n) {
         char visible[TITLE_MAX + 1];
         memcpy(visible, text + first, n);
@@ -437,7 +484,7 @@ static void draw_ticker(void) {
 }
 
 static void draw_title(void) {
-    const theme_t *t = &themes[current_theme];
+    const theme_t *t = &theme;
     if (t->decor == DECOR_BEVEL) {
         draw_box(MARGIN - 2, TITLE_Y, LCD_WIDTH - MARGIN + 1, TITLE_Y + BIG_CHAR_H + 1, t, false, true);
     }
@@ -447,7 +494,7 @@ static void draw_title(void) {
 // A VU-meter-style row of segments instead of one continuous fill, in an
 // optional bordered/shadowed frame.
 static void draw_bar(void) {
-    const theme_t *t         = &themes[current_theme];
+    const theme_t *t         = &theme;
     app_t         *a         = &apps[active_app];
     uint8_t        percent   = a->volume > 100 ? 100 : a->volume;
     uint8_t        lit       = (host_seen && !a->muted) ? (uint8_t)(percent * BAR_SEGMENTS / 100) : 0;
@@ -482,7 +529,7 @@ static void render_app_screen(bool full) {
 }
 
 static void render_menu_screen(void) {
-    const theme_t *t = &themes[current_theme];
+    const theme_t *t = &theme;
     lcd_clear_region(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
     if (app_count == 0) {
         const char *msg = "no apps";
@@ -595,6 +642,10 @@ static void handle_app_hold(void) {
 }
 
 bool encoder_update_user(uint8_t index, bool clockwise) {
+    if (saver_on) {
+        stop_saver();
+        return false;
+    }
     if (screen == SCREEN_MENU) {
         if (app_count == 0) return false;
         if (clockwise) {
@@ -619,6 +670,16 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     if (keycode != ENC_CLICK) return true;
+
+    if (saver_on && record->event.pressed) {
+        stop_saver();
+        saver_swallow_release = true;
+        return false;
+    }
+    if (saver_swallow_release && !record->event.pressed) {
+        saver_swallow_release = false;
+        return false;
+    }
 
     if (screen == SCREEN_MENU) {
         if (!record->event.pressed) {
@@ -675,7 +736,6 @@ static void apply_app_snapshot(void) {
     host_seen      = true;
     host_last_seen = timer_read32();
     if (changed) {
-        host_last_change = timer_read32();
         dirty_menu         = true;
         dirty_header         = true;
         dirty_title            = true;
@@ -683,9 +743,117 @@ static void apply_app_snapshot(void) {
     }
 }
 
+static void set_theme(const theme_t *next) {
+    if (memcmp(&theme, next, sizeof(theme)) == 0) return;
+    theme            = *next;
+    need_full_redraw = true;
+}
+
+// (Re)loads `slot`'s font: the uploaded one if the slot holds a usable one,
+// otherwise the built-in. Returns whether the uploaded one was taken.
+static bool load_font(uint8_t slot) {
+    painter_font_handle_t *h = font_handles[slot];
+    if (*h) qp_close_font(*h);
+    *h                 = NULL;
+    const uint8_t *qff = font_store_font(slot);
+    if (qff && qff[QFF_LINE_HEIGHT_OFFSET] == font_height[slot]) *h = qp_load_font_mem(qff);
+    bool uploaded = *h != NULL;
+    if (!uploaded) *h = qp_load_font_mem(font_builtin[slot]);
+
+    if (slot == FONT_BIG_SLOT) {
+        char s[2] = {0};
+        for (uint8_t i = 0; i < sizeof(big_glyph_w); i++) {
+            s[0]           = 0x20 + i;
+            big_glyph_w[i] = qp_textwidth(font_big, s);
+        }
+        title_scroll_offset = 0;
+    }
+    need_full_redraw = true;
+    return uploaded;
+}
+
+static void send_font_status(uint8_t slot, uint8_t status) {
+    uint8_t buf[RAW_EPSIZE] = {FONT_STATUS_CMD, slot, status};
+    raw_hid_send(buf, sizeof(buf));
+}
+
+static uint32_t read_le(const uint8_t *p, uint8_t n) {
+    uint32_t v = 0;
+    while (n--) v = v << 8 | p[n];
+    return v;
+}
+
+static void handle_font_cmd(uint8_t *data, uint8_t length) {
+    uint8_t slot = data[1];
+    if (data[0] != FONT_QUERY_CMD && slot >= FONT_SLOTS) {
+        if (data[0] != FONT_DATA_CMD) send_font_status(slot, FONT_ERR_SLOT);
+        return;
+    }
+    switch (data[0]) {
+        case FONT_BEGIN_CMD: {
+            if (length < 10) return;
+            // The font being replaced lives in the slot about to be erased.
+            qp_close_font(*font_handles[slot]);
+            *font_handles[slot] = qp_load_font_mem(font_builtin[slot]);
+            send_font_status(slot, font_store_begin(slot, read_le(&data[2], 4), read_le(&data[6], 4)));
+            break;
+        }
+        case FONT_DATA_CMD: {
+            if (length < 6) return;
+            uint8_t n = data[5];
+            if (n > length - 6) n = length - 6;
+            font_store_write(slot, read_le(&data[2], 3), &data[6], n);
+            break;
+        }
+        case FONT_END_CMD: {
+            uint8_t status = font_store_end(slot);
+            if (status == FONT_OK && !load_font(slot)) {
+                font_store_clear(slot);
+                status = FONT_ERR_FONT;
+            }
+            if (status != FONT_OK) load_font(slot);
+            send_font_status(slot, status);
+            break;
+        }
+        case FONT_CLEAR_CMD: {
+            font_store_clear(slot);
+            load_font(slot);
+            send_font_status(slot, FONT_OK);
+            break;
+        }
+        case FONT_QUERY_CMD: {
+            uint8_t buf[RAW_EPSIZE] = {FONT_INFO_CMD, FONT_SLOTS};
+            for (uint8_t i = 0; i < FONT_SLOTS; i++) {
+                uint32_t crc = font_store_crc(i);
+                for (uint8_t b = 0; b < 4; b++) buf[2 + i * 4 + b] = crc >> (8 * b);
+            }
+            raw_hid_send(buf, sizeof(buf));
+            break;
+        }
+    }
+}
+
 void raw_hid_receive(uint8_t *data, uint8_t length) {
     if (length < 1) return;
     switch (data[0]) {
+        case FONT_BEGIN_CMD:
+        case FONT_DATA_CMD:
+        case FONT_END_CMD:
+        case FONT_CLEAR_CMD:
+        case FONT_QUERY_CMD: {
+            if (length < 2) return;
+            handle_font_cmd(data, length);
+            break;
+        }
+        case PALETTE_CMD: {
+            if (length < 20 || data[19] >= DECOR_COUNT) return;
+            theme_t next;
+            memset(&next, 0, sizeof(next)); // set_theme() compares the padding too
+            memcpy(&next, &data[1], 18); // theme_t opens with the six H,S,V triples
+            next.decor = data[19];
+            set_theme(&next);
+            break;
+        }
         case APP_BEGIN_CMD: {
             if (length < 2) return;
             app_count_staging = data[1] > MAX_APPS ? MAX_APPS : data[1];
@@ -735,9 +903,8 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
         case THEME_CMD: {
             if (length < 2) return;
             uint8_t id = data[1];
-            if (id >= THEME_COUNT || id == current_theme) return;
-            current_theme     = id;
-            need_full_redraw = true;
+            if (id >= THEME_COUNT) return;
+            set_theme(&themes[id]);
             break;
         }
     }
@@ -746,6 +913,7 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
 void keyboard_post_init_user(void) {
     gpio_set_pin_output(LCD_BLK_PIN);
     LCD_BLK_ON();
+    theme = themes[DEFAULT_THEME];
 
     panel = qp_nv3007_make_spi_device(LCD_PANEL_WIDTH, LCD_PANEL_HEIGHT, LCD_CS_PIN, LCD_DC_PIN, LCD_RST_PIN, LCD_SPI_DIVISOR, LCD_SPI_MODE);
     qp_init(panel, QP_ROTATION_90);
@@ -759,35 +927,363 @@ void keyboard_post_init_user(void) {
     qp_init(lcd, QP_ROTATION_0);
     lcd_clear_region(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
 
-    font_ui   = qp_load_font_mem(font_font_ui);
-    font_big  = qp_load_font_mem(font_font_big);
-    font_list = qp_load_font_mem(font_font_list);
+    for (uint8_t slot = 0; slot < FONT_SLOTS; slot++) load_font(slot);
 
     ticker_surface = qp_make_rgb565_surface(TICKER_SURF_W, BIG_CHAR_H, ticker_buf);
     qp_init(ticker_surface, QP_ROTATION_0);
-    ticker_glyph_w = qp_textwidth(font_big, "M");
 
     need_full_redraw = true;
 }
 
-static void wake_display(void) {
-    if (display_on) return;
-    display_on = true;
-    LCD_BLK_ON();
-    qp_power(panel, true);
+// The UI comes back by repainting everything: the screensaver and the blank
+// panel both went around the framebuffer's dirty tracking.
+static void restore_ui(void) {
     need_full_redraw = true;
     flush_all        = true;
 }
 
-// Blank by painting black and dropping the backlight, not with qp_power():
-// DISPOFF on the NV3007 flashes the lit glass white and lets it fade to
-// black over several seconds.
-static void sleep_display(void) {
+// Only while the host is suspended. Blank by painting black and dropping
+// the backlight, not with qp_power(): DISPOFF on the NV3007 flashes the lit
+// glass white and lets it fade to black over several seconds.
+void suspend_power_down_user(void) {
     if (!display_on) return;
     display_on = false;
     qp_rect(panel, 0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1, 0, 0, 0, true);
     qp_flush(panel);
     LCD_BLK_OFF();
+}
+
+void suspend_wakeup_init_user(void) {
+    if (display_on) return;
+    display_on = true;
+    LCD_BLK_ON();
+    restore_ui();
+}
+
+// ---------------------------------------------------------------------
+// Screensaver: after DISPLAY_TIMEOUT_MS without touching the knob, an
+// endless synthwave drive replaces the UI -- a striped sun behind a city
+// skyline, a road running into the horizon through a striped sea, palm trees
+// going by and a car seen from behind, swaying with the road's curves.
+// Only the knob stops it (see stop_saver()); host updates don't.
+//
+// The scene is drawn in SCENE_PX x SCENE_PX blocks straight into lcd_fb and
+// sent to the panel without the surface's dirty tracking: everything from the
+// horizon (or the tallest palm) down changes every frame anyway.
+// ---------------------------------------------------------------------
+#define SAVER_FRAME_MS 40
+#define SCENE_PX 2
+#define SCENE_W (LCD_WIDTH / SCENE_PX)  // 214
+#define SCENE_H (LCD_HEIGHT / SCENE_PX) // 71
+#define HORIZON 27                      // first ground row
+#define GROUND_ROWS (SCENE_H - HORIZON)
+#define ROAD_CX (SCENE_W / 2)
+#define DEPTH_K 32768        // depth of ground row r (1 = horizon) is DEPTH_K / r
+#define DRIVE_SPEED 5        // depth units per ms
+#define CURVE_PX 30          // how far the vanishing point swings at most
+#define CURVE_PERIOD_MS 9000 // one full left-right-left sway
+#define PALMS 16             // alternating sides
+#define PALM_SPACING 2048    // depth between consecutive palms
+#define PALM_NEAR 400
+
+// Panel byte order (byte-swapped RGB565), like the surface stores it.
+#define RGB565(r, g, b) ((uint16_t)(((r) & 0xF8) << 8 | ((g) & 0xFC) << 3 | (b) >> 3))
+#define SCENE_RGB(r, g, b) ((uint16_t)(RGB565(r, g, b) >> 8 | RGB565(r, g, b) << 8))
+
+static uint32_t saver_start;
+static uint32_t saver_frame_time;
+static uint8_t  saver_prev_top; // highest scene row the last frame touched
+
+static const char *const palm_sprite[] = {
+    "......p..yp.y.........",
+    "...pppp.ppypppy.p.....",
+    "..pppppppppppppypp.y..",
+    ".yppypppppppppppppppy.",
+    "pp.y.pppppppppypyppppy",
+    "p....ppppppppppp.yp.py",
+    "....yppppppppppppp..py",
+    "...pppp.pppppypp.y..p.",
+    "..ppy.y.pp.pyp.py.p.y.",
+    "..py..y.p..p.y..y.p...",
+    "..p...yp...py...y.y...",
+    ".......p...py....y....",
+    "...........py.........",
+    "...........py.........",
+    "...........py.........",
+    "...........py.........",
+    "...........py.........",
+    "..........py..........",
+    "..........py..........",
+    "..........py..........",
+    "..........py..........",
+    "..........py..........",
+    "..........py..........",
+    "..........py..........",
+    ".........py...........",
+    ".........py...........",
+    ".........py...........",
+    ".........py...........",
+    ".........py...........",
+    ".........py...........",
+    ".........ppy..........",
+    ".........ppy..........",
+};
+#define PALM_W 22
+#define PALM_H 32
+#define PALM_ROOT 10 // trunk column at the bottom row
+
+static const char *const car_sprite[] = {
+    "..........kkkkkkkkkkkkkkkkkkkk..........",
+    ".........kPPPPPPPPPPPPPPPPPPPPk.........",
+    "........kPkkkkkkkkkkkkkkkkkkkkPk........",
+    ".......kPkCCCCCCcccccccccccccckPk.......",
+    "......kPkCCCCCccccccccccccccccckPk......",
+    ".....kPkCCCCcccccccccccccccccccckPk.....",
+    "....kPPkkkkkkkkkkkkkkkkkkkkkkkkkkPPk....",
+    "..kkPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPkk..",
+    ".kPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPk.",
+    "kqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqk",
+    "kqrrRRRRrrqqqqqqqqqqqqqqqqqqqqrrRRRRrrqk",
+    "kqrrrrrrrrqqqqqqqwwwwwwqqqqqqqrrrrrrrrqk",
+    "kqddddddddqqqqqqqwkkkkwqqqqqqqddddddddqk",
+    "kqqqqqqqqqqqqqqqqwwwwwwqqqqqqqqqqqqqqqqk",
+    "kgwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwgk",
+    "kddddgddddddddddddddddddddddddddddgddddk",
+    ".kkkkkkksssssssssssssssssssssssskkkkkkk.",
+    ".kkkkkkksssssssssssssssssssssssskkkkkkk.",
+    "ssssssssssssssssssssssssssssssssssssssss",
+    "..ssssssssssssssssssssssssssssssssssss..",
+};
+#define CAR_W 40
+#define CAR_H 20
+
+static uint16_t sprite_color(char c) {
+    switch (c) {
+        case 'p': return SCENE_RGB(255, 96, 180); // palm leaves
+        case 'y': return SCENE_RGB(255, 236, 0);
+        case 'k': return SCENE_RGB(16, 8, 24);
+        case 'P': return SCENE_RGB(150, 110, 220); // car body, lit
+        case 'q': return SCENE_RGB(108, 72, 176);
+        case 'd': return SCENE_RGB(64, 40, 112);
+        case 'c': return SCENE_RGB(0, 200, 210); // glass
+        case 'C': return SCENE_RGB(170, 255, 255);
+        case 'r': return SCENE_RGB(200, 16, 48); // tail lights
+        case 'R': return SCENE_RGB(255, 90, 110);
+        case 'w': return SCENE_RGB(240, 240, 240);
+        case 'g': return SCENE_RGB(150, 150, 165);
+        case 's': return SCENE_RGB(150, 60, 16); // shadow on the road
+        default: return 0;
+    }
+}
+
+static inline void scene_px(int16_t x, int16_t y, uint16_t c) {
+    if (x < 0 || x >= SCENE_W || y < 0 || y >= SCENE_H) return;
+    uint16_t *p = &lcd_fb[(y * SCENE_PX) * LCD_WIDTH + x * SCENE_PX];
+    p[0] = p[1] = p[LCD_WIDTH] = p[LCD_WIDTH + 1] = c;
+}
+
+static uint32_t scene_hash(uint32_t a, uint32_t b) {
+    uint32_t h = a * 73856093u ^ b * 19349663u;
+    h ^= h >> 13;
+    h *= 0x5bd1e995u;
+    return h ^ (h >> 15);
+}
+
+static uint16_t lerp_rgb(uint8_t r0, uint8_t g0, uint8_t b0, uint8_t r1, uint8_t g1, uint8_t b1, uint16_t i, uint16_t n) {
+    return SCENE_RGB(r0 + (r1 - r0) * i / n, g0 + (g1 - g0) * i / n, b0 + (b1 - b0) * i / n);
+}
+
+// The sky never moves: violet bands warming to orange at the horizon, a
+// striped sun, mountains on both sides and the city in front of the sun.
+static void draw_sky(void) {
+    for (int16_t y = 0; y < HORIZON; y++) {
+        uint16_t band = y / 3, bands = (HORIZON - 1) / 3;
+        uint16_t c    = band * 2 < bands ? lerp_rgb(60, 16, 110, 150, 50, 170, band, bands / 2) : lerp_rgb(150, 50, 170, 255, 120, 110, band - bands / 2, bands - bands / 2);
+        for (int16_t x = 0; x < SCENE_W; x++) scene_px(x, y, c);
+    }
+
+    // Sun: yellow to pink downwards, cut by gaps that widen towards the horizon.
+    const int16_t sr = 20, scy = HORIZON - 1;
+    for (int16_t y = scy - sr; y < HORIZON; y++) {
+        int16_t d = scy - y;
+        if (d < 12 && (d % 4 == 1 || (d < 6 && d % 4 == 2))) continue;
+        uint16_t c = lerp_rgb(255, 240, 40, 255, 70, 140, y - (scy - sr), sr);
+        for (int16_t x = ROAD_CX - sr; x <= ROAD_CX + sr; x++) {
+            int16_t dx = x - ROAD_CX;
+            if (dx * dx + d * d <= sr * sr) scene_px(x, y, c);
+        }
+    }
+
+    // Mountains: overlapping jagged peaks, low in the middle so the sun shows.
+    static const int8_t peaks[][3] = {{8, 12, 1}, {30, 17, 1}, {52, 10, 1}, {72, 6, 1}, {142, 6, 1}, {163, 11, 1}, {186, 16, 1}, {208, 12, 1}};
+    for (int16_t x = 0; x < SCENE_W; x++) {
+        int16_t h = 0;
+        for (uint8_t i = 0; i < sizeof(peaks) / sizeof(peaks[0]); i++) {
+            int16_t ph = peaks[i][1] - (x > peaks[i][0] ? x - peaks[i][0] : peaks[i][0] - x) * 3 / 4 - (scene_hash(x, i) & 1);
+            if (ph > h) h = ph;
+        }
+        for (int16_t k = 0; k < h; k++) {
+            scene_px(x, HORIZON - 1 - k, k == h - 1 ? SCENE_RGB(230, 110, 200) : SCENE_RGB(72, 30, 100));
+        }
+    }
+
+    // City: black towers with scattered lit windows and a couple of spires.
+    static const uint8_t towers[][3] = {
+        {78, 6, 8}, {84, 5, 13}, {89, 7, 9}, {96, 4, 19}, {100, 6, 11}, {106, 5, 7}, {111, 4, 16}, {115, 7, 10}, {122, 5, 14}, {127, 6, 8}, {133, 4, 18}, {137, 5, 6},
+    };
+    static const uint16_t windows[] = {SCENE_RGB(0, 240, 240), SCENE_RGB(255, 80, 170), SCENE_RGB(255, 236, 0)};
+    for (uint8_t i = 0; i < sizeof(towers) / sizeof(towers[0]); i++) {
+        int16_t x0 = towers[i][0], w = towers[i][1], h = towers[i][2];
+        for (int16_t y = HORIZON - h; y < HORIZON; y++) {
+            for (int16_t x = x0; x < x0 + w; x++) {
+                uint32_t r = scene_hash(x * 31 + y, i);
+                bool     lit = x > x0 && x < x0 + w - 1 && y > HORIZON - h && r % 7 == 0;
+                scene_px(x, y, lit ? windows[(r >> 8) % 3] : SCENE_RGB(10, 4, 20));
+            }
+        }
+        if (h >= 16) {
+            for (int16_t k = 1; k <= 4; k++) scene_px(x0 + w / 2, HORIZON - h - k, SCENE_RGB(10, 4, 20));
+            scene_px(x0 + w / 2, HORIZON - h - 5, SCENE_RGB(255, 80, 170));
+        }
+    }
+}
+
+// Ground row `r` (1 at the horizon): centre and half-width of the road.
+static int16_t road_cx(int16_t r, int16_t curve) {
+    if (r >= GROUND_ROWS) return ROAD_CX;
+    int16_t far = GROUND_ROWS - r;
+    return ROAD_CX + curve * far * far / (GROUND_ROWS * GROUND_ROWS);
+}
+
+static int16_t road_hw(int16_t r) {
+    return 1 + r * 3 / 2;
+}
+
+static void draw_ground(uint32_t travel, int16_t curve) {
+    const uint16_t road[2]  = {SCENE_RGB(255, 132, 24), SCENE_RGB(240, 110, 20)};
+    const uint16_t white    = SCENE_RGB(250, 250, 250);
+    const uint16_t sea[4]   = {SCENE_RGB(0, 236, 240), SCENE_RGB(240, 16, 72), SCENE_RGB(240, 16, 72), SCENE_RGB(150, 10, 70)};
+    for (int16_t r = 1; r <= GROUND_ROWS; r++) {
+        int16_t  y    = HORIZON + r - 1;
+        uint32_t z    = DEPTH_K / r + travel;
+        int16_t  cx   = road_cx(r, curve);
+        int16_t  hw   = road_hw(r);
+        int16_t  edge = 1 + r / 16;
+        bool     dash = (z >> 9) & 1;
+        uint16_t tar  = road[(z >> 10) & 1];
+        uint32_t band = z >> 8;
+        for (int16_t x = 0; x < SCENE_W; x++) {
+            int16_t  dx  = x - cx;
+            int16_t  adx = dx < 0 ? -dx : dx;
+            uint16_t c;
+            if (adx <= hw) {
+                c = (adx > hw - edge || (dash && adx * 16 <= r)) ? white : tar;
+            } else {
+                // Sea: brick-like dashes, stretched wider the closer they are.
+                int32_t wx = (int32_t)dx * 48 / r + (int32_t)(scene_hash(band, 0) & 31);
+                c          = sea[scene_hash(band, (uint32_t)(wx >> 5)) & 3];
+            }
+            scene_px(x, y, c);
+        }
+    }
+}
+
+// Palms stand just off the road's edges; returns the highest row drawn.
+static int16_t draw_palms(uint32_t travel, int16_t curve) {
+    uint32_t zs[PALMS];
+    uint8_t  order[PALMS];
+    for (uint8_t i = 0; i < PALMS; i++) {
+        zs[i]    = (i * PALM_SPACING + PALMS * PALM_SPACING - travel % (PALMS * PALM_SPACING)) % (PALMS * PALM_SPACING) + PALM_NEAR;
+        order[i] = i;
+    }
+    // Far to near, so nearer palms cover farther ones.
+    for (uint8_t i = 1; i < PALMS; i++) {
+        for (uint8_t j = i; j > 0 && zs[order[j]] > zs[order[j - 1]]; j--) {
+            uint8_t t = order[j];
+            order[j]  = order[j - 1];
+            order[j - 1] = t;
+        }
+    }
+    int16_t top = HORIZON;
+    for (uint8_t n = 0; n < PALMS; n++) {
+        uint8_t  i    = order[n];
+        uint32_t r16  = (uint32_t)DEPTH_K * 16 / zs[i]; // ground row, 1/16 px
+        if (r16 < 24) continue;
+        int16_t  r    = r16 / 16;
+        uint32_t s    = r16 * 256 / (GROUND_ROWS * 16); // scale, 1/256
+        int8_t   side = (i & 1) ? 1 : -1;
+        int16_t  base = HORIZON - 1 + r;
+        int16_t  h    = PALM_H * s / 256;
+        int16_t  w    = PALM_W * s / 256;
+        if (h < 2) continue;
+        int16_t root = road_cx(r, curve) + side * (road_hw(r) + (int16_t)(6 * s / 256) + 1);
+        int16_t x0   = root - PALM_ROOT * (int32_t)s / 256;
+        if (side > 0) x0 = root - (PALM_W - 1 - PALM_ROOT) * (int32_t)s / 256; // mirrored: lean towards the road
+        if (base - h + 1 < top) top = base - h + 1;
+        for (int16_t dy = 0; dy < h; dy++) {
+            int16_t sy = dy * 256 / s;
+            int16_t y  = base - h + 1 + dy;
+            if (y >= SCENE_H) break;
+            for (int16_t dx = 0; dx < w; dx++) {
+                int16_t sx = dx * 256 / s;
+                if (sx >= PALM_W || sy >= PALM_H) continue;
+                char c = palm_sprite[sy][side > 0 ? PALM_W - 1 - sx : sx];
+                if (c != '.') scene_px(x0 + dx, y, sprite_color(c));
+            }
+        }
+    }
+    return top < 0 ? 0 : top;
+}
+
+static void draw_car(uint32_t t, int16_t curve) {
+    int16_t x0 = ROAD_CX - CAR_W / 2 - curve / 5;
+    int16_t y0 = SCENE_H - CAR_H - ((t / 110) % 5 == 0 ? 1 : 0);
+    for (int16_t y = 0; y < CAR_H; y++) {
+        for (int16_t x = 0; x < CAR_W; x++) {
+            char c = car_sprite[y][x];
+            if (c != '.') scene_px(x0 + x, y0 + y, sprite_color(c));
+        }
+    }
+}
+
+static int16_t saver_curve(uint32_t t) {
+    // Triangle wave eased into a smooth sway, no floats needed.
+    int32_t p = (int32_t)(t % CURVE_PERIOD_MS) * 4096 / CURVE_PERIOD_MS; // 0..4095
+    int32_t q = p < 2048 ? p : 4096 - p;                                 // 0..2048..0
+    int32_t u = q - 1024;                                                // -1024..1024
+    int32_t e = u * (3 * 1048576 - u * u) / (2 * 1048576);               // smoothstep-like
+    return (int16_t)(CURVE_PX * e / 1024);
+}
+
+static void render_saver_frame(void) {
+    uint32_t t      = timer_elapsed32(saver_start);
+    uint32_t travel = t * DRIVE_SPEED;
+    int16_t  curve  = saver_curve(t);
+    draw_sky();
+    draw_ground(travel, curve);
+    int16_t top = draw_palms(travel, curve);
+    draw_car(t, curve);
+
+    // Send from the highest row that changed, now or in the last frame.
+    uint8_t from   = top < saver_prev_top ? top : saver_prev_top;
+    saver_prev_top = top;
+    uint16_t y0    = from * SCENE_PX;
+    qp_viewport(panel, 0, y0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
+    qp_pixdata(panel, &lcd_fb[y0 * LCD_WIDTH], (uint32_t)(LCD_HEIGHT - y0) * LCD_WIDTH);
+}
+
+static void start_saver(void) {
+    saver_on       = true;
+    saver_start    = timer_read32();
+    saver_prev_top = 0; // first frame goes out whole
+    render_saver_frame();
+    saver_frame_time = timer_read32();
+}
+
+static void stop_saver(void) {
+    if (!saver_on) return;
+    saver_on = false;
+    restore_ui();
 }
 
 // Sends the framebuffer's changed pixels to the panel (all of it after the
@@ -819,13 +1315,17 @@ void housekeeping_task_user(void) {
         }
     }
 
-    bool idle = last_input_activity_elapsed() > DISPLAY_TIMEOUT_MS && timer_elapsed32(host_last_change) > DISPLAY_TIMEOUT_MS;
-    if (idle) {
-        sleep_display();
-    } else {
-        wake_display();
-    }
     if (!display_on) return;
+    if (!saver_on && last_input_activity_elapsed() > DISPLAY_TIMEOUT_MS) {
+        start_saver();
+    }
+    if (saver_on) {
+        if (timer_elapsed32(saver_frame_time) >= SAVER_FRAME_MS) {
+            saver_frame_time = timer_read32();
+            render_saver_frame();
+        }
+        return;
+    }
 
     if (screen == SCREEN_APP && app_count) {
         app_t *a = &apps[active_app];

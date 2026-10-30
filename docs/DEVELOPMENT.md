@@ -13,7 +13,8 @@ Everything you need to change the firmware, the host daemon or the case. If you 
   - [Tuning constants](#tuning-constants)
   - [Diagnostic keymaps](#diagnostic-keymaps)
   - [Fonts](#fonts)
-- [Host daemon](#host-daemon)
+  - [Fonts uploaded from the host](#fonts-uploaded-from-the-host)
+- [Host app](#host-app)
   - [Raw HID protocol](#raw-hid-protocol)
   - [Adding a theme](#adding-a-theme)
 - [Case](#case)
@@ -27,7 +28,7 @@ Everything you need to change the firmware, the host daemon or the case. If you 
 | Path | What it is |
 |---|---|
 | `qmk/waveshare_rp2040_zero_volume/` | The QMK keyboard definition: `keyboard.json`, `config.h`, `halconf.h`, `mcuconf.h`, `rules.mk`, the NV3007 driver (`qp_nv3007.c/.h`), fonts in `graphics/` and the keymaps in `keymaps/`. |
-| `host/volume_sync.py` | The Linux daemon (Python 3, standard library only) that talks to the knob. |
+| `host/volume_sync.py`, `host/volume_keeb/` | The host app (Python 3; Linux and Windows) that talks to the knob and serves the settings page. |
 | `host/70-volume-keeb.rules` | udev rule that lets the logged-in user open the knob's `hidraw` node. |
 | `host/volume-sync.service` | systemd user unit that runs the daemon at login. |
 | `case/volume_case.scad` | The parametric OpenSCAD case. |
@@ -56,7 +57,7 @@ Edit the files through this repo's path so `git status` stays meaningful. Build 
 qmk compile -kb handwired/onekey/waveshare_rp2040_zero_volume -km volume
 ```
 
-The board inherits USB VID/PID `0xFEED`/`0x6465` from `handwired/onekey`. `host/volume_sync.py` and `host/70-volume-keeb.rules` both look for that pair; change all three together.
+The board inherits USB VID/PID `0xFEED`/`0x6465` from `handwired/onekey`. `host/volume_keeb/protocol.py` and `host/70-volume-keeb.rules` both look for that pair; change all three together.
 
 `config.h` sets `USB_SUSPEND_WAKEUP_DELAY 200` to give the host time to notice the remote-wakeup packet.
 
@@ -72,7 +73,7 @@ The screen is a 2.79" 142x428 NV3007 IPS LCD on SPI0, driven by Quantum Painter.
 - QMK has no upstream NV3007 driver. `qp_nv3007.c` reuses Quantum Painter's generic `tft_panel`/SPI code (the same path as the ST7789 driver, which is why `rules.mk` lists `st7789_spi` under `QUANTUM_PAINTER_DRIVERS`, next to `surface` for the title ticker) and only supplies the controller's init sequence.
 - The panel is native portrait (142x428) and is driven rotated with `QP_ROTATION_90`, so the UI is landscape, 428x142. `LCD_PANEL_WIDTH/HEIGHT` are the native size passed to the driver; `LCD_WIDTH/HEIGHT` are the rotated canvas `keymap.c` lays out against. If the UI is upside down, change `QP_ROTATION_90` to `QP_ROTATION_270` in `keymap.c`.
 - The keymap never draws on the panel directly: it draws into a full-screen RGB565 framebuffer (428x142, 121 KB of RAM) and, once per loop, sends only the rectangle of pixels that changed (`qp_surface_draw`). Drawing straight to the panel showed every clear-then-redraw as a flash of the whole screen. `SURFACE_NUM_DEVICES` is 2 in `config.h`: this framebuffer and the title ticker's.
-- `BLK` is a plain GPIO (`GP0`, no PWM), active-high on this module. The keymap drives it low to blank the panel after the idle timeout.
+- `BLK` is a plain GPIO (`GP0`, no PWM), active-high on this module. The keymap drives it low to blank the panel while the host is suspended (`suspend_power_down_user()`).
 
 Panel knobs in `config.h`:
 
@@ -94,11 +95,11 @@ All in `keymaps/volume/keymap.c`:
 | `VOLUME_STEP` | `5` | Percent per encoder detent. |
 | `HOLD_MS` | `500` | Click-and-hold time for mute. |
 | `DOUBLE_CLICK_MS` | `300` | Window for a double-click (play/pause). |
-| `DISPLAY_TIMEOUT_MS` | `30000` | Idle time before the screen is painted black and the backlight goes off. Quantum Painter's own timeout is disabled in `config.h` (`QUANTUM_PAINTER_DISPLAY_TIMEOUT 0`): it sends DISPOFF, which turns the lit NV3007 white and fades it out slowly. |
+| `DISPLAY_TIMEOUT_MS` | `30000` | Time without knob input (host updates don't count) before the screensaver starts: a synthwave drive drawn in 2x2-pixel blocks straight into the framebuffer every `SAVER_FRAME_MS`, sent to the panel from the horizon (or the tallest palm) down. The first turn or click only stops it. Quantum Painter's own timeout is disabled in `config.h` (`QUANTUM_PAINTER_DISPLAY_TIMEOUT 0`): it sends DISPOFF, which turns the lit NV3007 white and fades it out slowly. |
 | `HOST_STALE_MS` | `5000` | No packet from the host for this long clears the app list. |
 | `SCROLL_STEP_MS` | `350` | Marquee speed for app names that don't fit. |
 | `TICKER_STEP_PX`, `TICKER_STEP_MS` | `2`, `30` | The song title's speed across the screen, right to left. It's drawn into an RGB565 surface a glyph wider than the row on each side (so glyphs at the edges are cut, not dropped), and only the visible middle is sent to the panel. |
-| `MAX_APPS`, `NAME_MAX`, `TITLE_MAX` | `10`, `24`, `87` | Must match `volume_sync.py`. |
+| `MAX_APPS`, `NAME_MAX`, `TITLE_MAX` | `10`, `24`, `87` | Must match `host/volume_keeb/protocol.py`. |
 
 ### Diagnostic keymaps
 
@@ -115,19 +116,50 @@ qmk compile -kb handwired/onekey/waveshare_rp2040_zero_volume -km diag
 
 `graphics/*.qff.c` are Quantum Painter fonts generated from DejaVu Sans Mono with `qmk painter-make-font-image` + `qmk painter-convert-font-image`. Don't hand-edit them; each file's header comment has the `painter-convert-font-image` arguments (`-f mono2`). The `--size` given to `painter-make-font-image` (with `--font /usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf`) is 11 for `font_ui` (13 px tall, header and labels) and 22 for `font_list` (24 px, the menu's app list, sized so 4 rows fill the screen).
 
-## Host daemon
+### Fonts uploaded from the host
 
-`host/volume_sync.py` is Linux-only. It needs `pactl` (PulseAudio, or PipeWire with `pipewire-pulse`), `busctl` (systemd, for MPRIS) and Python 3.
+The settings page can replace each of the three fonts. The host converts the font to QFF (`host/volume_keeb/qff.py`, a from-scratch version of QMK's font tools, so the host doesn't need the QMK CLI) and uploads it into a slot of `keymaps/volume/font_store.c`:
 
-- Apps come from `pactl list sink-inputs` (one per playing stream), plus a synthetic `Master` entry for the default sink.
-- Media titles and play/pause come from MPRIS players over D-Bus (`busctl --user`). A stream and a player are matched by normalized app name (lowercase, non-alphanumerics stripped). It's a heuristic that works for the common cases (browsers, Spotify), not a guarantee.
-- It wakes on every `pactl subscribe` event about sinks/server, and at least every `HEARTBEAT_S` (2 s), so the firmware's 5 s stale timer never fires while it runs.
-- It finds the knob by scanning `/sys/class/hidraw/*` for VID/PID `FEED:6465` and a report descriptor starting with QMK's Raw HID usage page `0xFF60`.
+- The slots are 64 kB each, from 1 MB into the 2 MB flash (`FONT_STORE_*` in `config.h`): far past the firmware and clear of the wear-leveled EEPROM at the end. A UF2 only rewrites the blocks it carries, so re-flashing keeps them.
+- Each slot is a header page (magic, length, CRC-32) and then the QFF. The header is written last, after the data checked out against the host's CRC, so an interrupted upload reads as an empty slot.
+- Erasing and programming use pico-sdk's `flash_range_*` (they run from RAM) with interrupts off, one 4 kB sector or 256-byte page at a time, so each pause is short. The USB hardware NAKs the host in the meantime, which is all the flow control the upload needs.
+- The layout is fixed, so the keymap only takes an uploaded font whose line height equals the slot's (13, 27, 24 px; it reads byte 17 of the QFF); `qff.py` renders the font at the biggest size that fits, and caps glyphs at 32 px wide (`TICKER_PAD`). Any other font falls back to the built-in one.
+- `font_big` used to be assumed monospaced by the title ticker; it now keeps a per-glyph width table (`big_glyph_w`), refreshed whenever the font changes.
+
+## Host app
+
+`host/volume_sync.py` starts `host/volume_keeb/`, which runs on Linux and Windows:
+
+| Module | Does |
+|---|---|
+| `app.py` | Command line, startup, single instance (a second start opens the running one's page) |
+| `engine.py` | The threads: one reads the knob (and finds it again after an unplug), one collects the app list and applies the knob's actions; pushes the look and syncs the fonts on every (re)connect |
+| `knob.py` | Raw HID: `/dev/hidraw` with the standard library on Linux, hidapi elsewhere |
+| `audio_linux.py` | `pactl` + MPRIS (`busctl`) |
+| `audio_windows.py` | WASAPI audio sessions (pycaw) + the system media transport controls (pywinrt) |
+| `web.py`, `web/index.html` | The settings page and its JSON API, on `127.0.0.1:8137` |
+| `qff.py` | TTF/OTF → QFF, and the page's font previews |
+| `config.py` | `config.json` and the fonts, in `~/.config/volume-keeb` or `%APPDATA%\volume-keeb` |
+| `tray.py`, `autostart.py` | The tray icon (pystray) and Windows' "Start with Windows" (the HKCU `Run` key) |
+
+- **Linux**: apps come from `pactl list sink-inputs` (one per playing stream), plus a synthetic `Master` for the default sink. It wakes on every `pactl subscribe` event about sinks/server.
+- **Windows**: apps are the processes with an audio session (all sessions of one process are one app), plus `Master` for the default output's endpoint volume. Nothing announces changes, so it polls every 0.5 s. COM is used in the multithreaded apartment, which pywinrt needs too, and only from the sync thread. **Untested on real hardware so far.**
+- Media titles and play/pause: an MPRIS player (Linux) or a media session (Windows) is matched to an app by normalized name (lowercase, non-alphanumerics stripped; on Windows also `.exe` stripped, a substring match, and a few aliases such as Firefox's app id). A heuristic that covers browsers and Spotify, not a guarantee.
+- The app list is resent when it changes and at least every `HEARTBEAT_S` (2 s), so the firmware's 5 s stale timer never fires while it runs.
+- The knob is found by VID/PID `FEED:6465` and QMK's Raw HID usage page `0xFF60`.
 - Text is reduced to printable ASCII (accents stripped) because the fonts only cover ASCII.
+- The page only answers requests addressed to `localhost`, and requests that change something need an `X-Volume-Keeb` header, so other websites can't change the knob from the browser.
+
+To try the firmware against uploaded fonts without flashing, convert them by hand and point the UI simulator at them:
+
+```sh
+cd host && python3 -m volume_keeb.qff SomeFont.ttf title /tmp/fonts/slot1.qff mono16   # slots: ui=0, title=1, list=2
+UI_SIM_FONTS=/tmp/fonts python3 ../tools/ui_sim/run.py /tmp/sim
+```
 
 ### Raw HID protocol
 
-32-byte reports over QMK Raw HID. The command bytes and layouts are defined in both `volume_sync.py` and `keymap.c`; keep them in sync.
+32-byte reports over QMK Raw HID. The command bytes and layouts are defined in both `host/volume_keeb/protocol.py` and `keymap.c` (whose comment above the `*_CMD` defines has the byte layout of each); keep them in sync.
 
 | Direction | Byte 0 | Meaning |
 |---|---|---|
@@ -135,17 +167,23 @@ qmk compile -kb handwired/onekey/waveshare_rp2040_zero_volume -km diag
 | host → knob | `0x61` | One app entry (id, volume, mute, name, …) |
 | host → knob | `0x62` | End of snapshot |
 | host → knob | `0x54` (`'T'`) | A chunk of the media title for the app that has one |
-| host → knob | `0x63` | Display theme: an index into `keymap.c`'s `themes[]` |
+| host → knob | `0x63` | Preset theme: an index into `keymap.c`'s `themes[]` |
 | host → knob | `0x64` | Reboot into the BOOTSEL bootloader (`volume_sync.py --bootloader`, used by `flash.sh`) |
+| host → knob | `0x65` | Palette: six H,S,V colors and the decor style |
+| host → knob | `0x66`–`0x68` | Font upload: begin (slot, length, CRC; erases), data (offset + up to 26 bytes), end (checks, loads) |
+| host → knob | `0x69` | Clear a font slot (back to the built-in font) |
+| host → knob | `0x6A` | Ask which fonts the slots hold |
 | knob → host | `0x70` | Action for one app id: `0` set volume, `1` toggle mute, `2` play/pause |
+| knob → host | `0x71` | Result of a font begin/end/clear |
+| knob → host | `0x72` | Each slot's font CRC (0 = built-in) |
 
 ### Adding a theme
 
 1. Add an entry to `themes[]` in `keymap.c` and bump `THEME_COUNT`.
-2. Add its name and index to `THEMES` in `volume_sync.py`.
-3. Rebuild and reflash; run the daemon with `--theme <name>`.
+2. Add it to `PRESETS` and `THEME_IDS` in `host/volume_keeb/protocol.py`.
+3. Rebuild and reflash; it shows up on the settings page.
 
-The firmware doesn't store the theme; the daemon sends it on start and every reconnect.
+The firmware doesn't store the look; the host sends it on start, on every reconnect and on every change on the page. Fonts are the exception: they live in the knob's flash, and the host only re-sends one whose CRC differs from what it has saved.
 
 ## Case
 

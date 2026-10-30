@@ -96,6 +96,16 @@ int main(int argc, char **argv) {
         }
         click(); // back to menu
     }
+
+    // Idle long enough for the screensaver, then a few frames of the drive.
+    tick(DISPLAY_TIMEOUT_MS + 100);
+    for (int f = 0; f < 6; f++) {
+        snprintf(name, sizeof(name), "saver_%d", f); dump(name);
+        tick(f % 2 ? 1300 : 120);
+    }
+    turn(true); // the knob stops it without changing anything
+    tick(20);
+    dump("saver_stopped");
     return 0;
 }
 

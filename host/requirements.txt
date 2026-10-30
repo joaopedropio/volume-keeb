@@ -1,0 +1,16 @@
+# Linux: only the settings page's font conversion and the tray icon need
+# anything beyond the standard library, and both have distro packages:
+#   sudo apt install python3-pil python3-pystray gir1.2-ayatanaappindicator3-0.1
+# (the tray is optional; without pystray the app just has no icon).
+Pillow
+pystray
+
+# Windows: HID, per-app audio and media sessions.
+hidapi; sys_platform == "win32"
+pycaw; sys_platform == "win32"
+comtypes; sys_platform == "win32"
+psutil; sys_platform == "win32"
+winrt-runtime; sys_platform == "win32"
+winrt-Windows.Foundation; sys_platform == "win32"
+winrt-Windows.Foundation.Collections; sys_platform == "win32"
+winrt-Windows.Media.Control; sys_platform == "win32"

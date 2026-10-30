@@ -1,10 +1,12 @@
 [Unit]
-Description=Push per-app volume/media state to the volume-keeb display
+Description=volume-keeb: per-app volume knob sync and settings page
 After=pipewire-pulse.service pulseaudio.service
 
 [Service]
+# install.sh points this at wherever the repo was cloned.
 ExecStart=%h/volume-keeb/host/volume_sync.py
 Restart=on-failure
+RestartSec=2
 
 [Install]
 WantedBy=default.target

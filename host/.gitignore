@@ -1,0 +1,6 @@
+.venv/
+build/
+dist/
+*.spec
+volume-keeb.ico
+__pycache__/

@@ -25,7 +25,7 @@
 #define LCD_SPI_MODE 3
 
 // Backlight is a plain digital GPIO (no PWM/dimming) toggled in the keymap
-// to blank the panel on the same idle timeout the old OLED used.
+// to blank the panel while the host is suspended.
 #define LCD_BLK_PIN GP0
 // The NV3007 module's backlight is active-high: driving the pin high turns it on.
 #define LCD_BLK_ON() gpio_write_pin_high(LCD_BLK_PIN)
@@ -33,7 +33,7 @@
 
 // Quantum Painter's own idle timeout (30 s by default) sends DISPOFF behind
 // the keymap's back, which flashes the lit NV3007 white and fades it out.
-// The keymap blanks the screen itself (DISPLAY_TIMEOUT_MS), so turn it off.
+// The keymap runs a screensaver instead (DISPLAY_TIMEOUT_MS), so turn it off.
 #define QUANTUM_PAINTER_DISPLAY_TIMEOUT 0
 
 // Two RGB565 surfaces: the full-screen framebuffer and the title ticker.
@@ -55,3 +55,10 @@
 // else in the firmware lays out against these, landscape.
 #define LCD_WIDTH 428
 #define LCD_HEIGHT 142
+
+// Fonts uploaded from the host (keymaps/volume/font_store.c): FONT_SLOTS
+// slots of FONT_STORE_SLOT_SIZE each, from 1 MB into the 2 MB flash -- far
+// past the firmware (under 100 kB) and clear of the wear-leveled EEPROM in
+// the last sectors.
+#define FONT_STORE_OFFSET 0x100000
+#define FONT_STORE_SLOT_SIZE 0x10000
