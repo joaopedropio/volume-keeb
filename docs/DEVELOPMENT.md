@@ -69,15 +69,16 @@ QMK needs at least one matrix key in a `LAYOUT`. The encoder's rotation pins (`G
 The screen is a 2.79" 142x428 NV3007 IPS LCD on SPI0, driven by Quantum Painter.
 
 - RP2040's SPI0 mux fixes the pins: SCK/MOSI must be `GP2`/`GP3` (or `GP6`/`GP7`). MISO isn't wired (the panel is write-only), but the ChibiOS SPI driver needs a valid SPI0 MISO pin, so `config.h` declares `GP16`, which isn't broken out on the RP2040-Zero.
-- QMK has no upstream NV3007 driver. `qp_nv3007.c` reuses Quantum Painter's generic `tft_panel`/SPI code (the same path as the ST7789 driver, which is why `rules.mk` lists `st7789_spi` under `QUANTUM_PAINTER_DRIVERS`) and only supplies the controller's init sequence.
+- QMK has no upstream NV3007 driver. `qp_nv3007.c` reuses Quantum Painter's generic `tft_panel`/SPI code (the same path as the ST7789 driver, which is why `rules.mk` lists `st7789_spi` under `QUANTUM_PAINTER_DRIVERS`, next to `surface` for the title ticker) and only supplies the controller's init sequence.
 - The panel is native portrait (142x428) and is driven rotated with `QP_ROTATION_90`, so the UI is landscape, 428x142. `LCD_PANEL_WIDTH/HEIGHT` are the native size passed to the driver; `LCD_WIDTH/HEIGHT` are the rotated canvas `keymap.c` lays out against. If the UI is upside down, change `QP_ROTATION_90` to `QP_ROTATION_270` in `keymap.c`.
+- The keymap never draws on the panel directly: it draws into a full-screen RGB565 framebuffer (428x142, 121 KB of RAM) and, once per loop, sends only the rectangle of pixels that changed (`qp_surface_draw`). Drawing straight to the panel showed every clear-then-redraw as a flash of the whole screen. `SURFACE_NUM_DEVICES` is 2 in `config.h`: this framebuffer and the title ticker's.
 - `BLK` is a plain GPIO (`GP0`, no PWM), active-high on this module. The keymap drives it low to blank the panel after the idle timeout.
 
 Panel knobs in `config.h`:
 
 | Setting | Default | When to touch it |
 |---|---|---|
-| `LCD_OFFSET_X` / `LCD_OFFSET_Y` | `0` / `13` | The 142 px glass sits inside the controller's 168-wide RAM. If the image is shifted or has a garbage strip on one edge, adjust these. |
+| `LCD_OFFSET_X` / `LCD_OFFSET_Y` | `0` / `14` | The 142 px glass sits inside the controller's 168-wide RAM. If the image is shifted or has a garbage strip on one edge, adjust these. |
 | `NV3007_INVERT` | off | Uncomment if colors come out inverted. |
 | `LCD_SPI_DIVISOR` | `4` | Raise it if long or noisy wires corrupt the image. |
 | `LCD_SPI_MODE` | `3` | SPI mode. |
@@ -93,9 +94,10 @@ All in `keymaps/volume/keymap.c`:
 | `VOLUME_STEP` | `5` | Percent per encoder detent. |
 | `HOLD_MS` | `500` | Click-and-hold time for mute. |
 | `DOUBLE_CLICK_MS` | `300` | Window for a double-click (play/pause). |
-| `DISPLAY_TIMEOUT_MS` | `60000` | Idle time before the backlight goes off. |
+| `DISPLAY_TIMEOUT_MS` | `30000` | Idle time before the screen is painted black and the backlight goes off. Quantum Painter's own timeout is disabled in `config.h` (`QUANTUM_PAINTER_DISPLAY_TIMEOUT 0`): it sends DISPOFF, which turns the lit NV3007 white and fades it out slowly. |
 | `HOST_STALE_MS` | `5000` | No packet from the host for this long clears the app list. |
-| `SCROLL_STEP_MS` | `350` | Marquee speed for names and titles that don't fit. |
+| `SCROLL_STEP_MS` | `350` | Marquee speed for app names that don't fit. |
+| `TICKER_STEP_PX`, `TICKER_STEP_MS` | `2`, `30` | The song title's speed across the screen, right to left. It's drawn into an RGB565 surface a glyph wider than the row on each side (so glyphs at the edges are cut, not dropped), and only the visible middle is sent to the panel. |
 | `MAX_APPS`, `NAME_MAX`, `TITLE_MAX` | `10`, `24`, `87` | Must match `volume_sync.py`. |
 
 ### Diagnostic keymaps
@@ -134,6 +136,7 @@ qmk compile -kb handwired/onekey/waveshare_rp2040_zero_volume -km diag
 | host → knob | `0x62` | End of snapshot |
 | host → knob | `0x54` (`'T'`) | A chunk of the media title for the app that has one |
 | host → knob | `0x63` | Display theme: an index into `keymap.c`'s `themes[]` |
+| host → knob | `0x64` | Reboot into the BOOTSEL bootloader (`volume_sync.py --bootloader`, used by `flash.sh`) |
 | knob → host | `0x70` | Action for one app id: `0` set volume, `1` toggle mute, `2` play/pause |
 
 ### Adding a theme

@@ -31,13 +31,23 @@
 #define LCD_BLK_ON() gpio_write_pin_high(LCD_BLK_PIN)
 #define LCD_BLK_OFF() gpio_write_pin_low(LCD_BLK_PIN)
 
+// Quantum Painter's own idle timeout (30 s by default) sends DISPOFF behind
+// the keymap's back, which flashes the lit NV3007 white and fades it out.
+// The keymap blanks the screen itself (DISPLAY_TIMEOUT_MS), so turn it off.
+#define QUANTUM_PAINTER_DISPLAY_TIMEOUT 0
+
+// Two RGB565 surfaces: the full-screen framebuffer and the title ticker.
+#ifndef SURFACE_NUM_DEVICES
+#    define SURFACE_NUM_DEVICES 2
+#endif
+
 // Native panel pixel dimensions, passed straight to qp_nv3007_make_spi_device().
 #define LCD_PANEL_WIDTH 142
 #define LCD_PANEL_HEIGHT 428
 
 // Glass offset inside the controller's 168-wide RAM, in the rotated frame.
 #define LCD_OFFSET_X 0
-#define LCD_OFFSET_Y 13
+#define LCD_OFFSET_Y 14
 // Uncomment if colours look inverted.
 // #define NV3007_INVERT
 

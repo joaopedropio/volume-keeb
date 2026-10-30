@@ -31,8 +31,8 @@ This README is a step-by-step guide to building your own. If you want to change 
 - **Per-app volume**: every app that is playing sound gets its own entry, plus `Master` for the system's default output.
 - **Media info**: the title of what's playing (from MPRIS: Spotify, browsers, most media players) shown large on the screen.
 - **Play/pause and mute** from the knob.
-- **Three themes**: `terminal` (green phosphor), `neobrutal` (cream, black and orange, hard shadows) and `winamp` (the classic Winamp skin).
-- **Screen saver**: the screen turns off after 60 s without activity and wakes on the knob or on any change on the computer.
+- **Four themes**: `neon` (synthwave), `terminal` (green phosphor), `neobrutal` (cream, black and orange, hard shadows) and `winamp` (the classic Winamp skin).
+- **Screen saver**: the screen turns off after 30 s without activity and wakes on the knob or on any change on the computer.
 - **Wakes the computer** from suspend.
 - **No drivers**: it's a plain USB HID device. The daemon uses only Python's standard library.
 
@@ -164,6 +164,8 @@ The RP2040 has a built-in bootloader that shows up as a USB drive, so flashing i
 
 Once it's in the case, BOOT is pressed with a pin through the hole marked **`B`** under the case (**`R`** is RESET). To re-flash later: hold B, tap R, release B.
 
+Once this firmware is on the board and the [host setup](#step-7-set-up-the-computer-) is done, re-flashing needs no buttons: `./flash.sh` builds the firmware, tells the running knob to reboot into its bootloader and copies the `.uf2` onto the `RPI-RP2` drive (Linux).
+
 ## Step 4: Wire it up [🔼](#contents)
 
 ### Pinout
@@ -260,8 +262,8 @@ Check it's running with `systemctl --user status volume-sync` and its log with `
 
 The knob has two screens:
 
-- **Menu**: a horizontal row of apps: `Master` (your default output) plus every app that's playing sound right now. A small dot marks the app the App screen would go back to.
-- **App**: the app's name and volume (or `MUTE`) at the top, the media title (if any) in large text, and a 30-segment volume bar along the bottom.
+- **Menu**: a list of apps, one per line: `Master` (your default output) plus every app that's playing sound right now, each followed by the song it's playing, if any. A small dot marks the app the App screen would go back to.
+- **App**: the app's name and volume (or `MUTE`) at the top, the media title (if any) in large text, crossing the screen from right to left, and a 30-segment volume bar along the bottom.
 
 | Action | Menu | App |
 |---|---|---|
@@ -270,13 +272,14 @@ The knob has two screens:
 | Double-click | — | Play/pause (apps with media controls) |
 | Click and hold | — | Mute / unmute |
 
-Long names and titles scroll. If the daemon stops (or the computer sleeps), the app list clears after 5 s and the knob goes back to the menu.
+Long app names scroll. If the daemon stops (or the computer sleeps), the app list clears after 5 s and the knob goes back to the menu.
 
 ## Themes [🔼](#contents)
 
 | Theme | Look |
 |---|---|
-| `terminal` (default) | Flat green-phosphor terminal. |
+| `neon` (default) | Synthwave: deep violet, cyan text, hot-pink glowing outlines, a cyan-to-pink rule under the header and a gradient volume bar. |
+| `terminal` | Flat green-phosphor terminal. |
 | `neobrutal` | Cream, black and orange, thick borders and hard drop shadows, after [this Figma concept](https://www.figma.com/make/t8KsdhbALpn6rPHxM7KQUm/Volume-Controller-UI). |
 | `winamp` | Grey-blue chassis with sunken black "LCD" wells, green text and an amber accent, after the classic Winamp skin. Menu items look like toolbar buttons that press in when selected. |
 
@@ -293,7 +296,7 @@ systemctl --user restart volume-sync
 | Symptom | What to check |
 |---|---|
 | No `RPI-RP2` drive appears | Use a data USB-C cable (not charge-only). Hold BOOT *before* plugging in. |
-| Screen stays black | `VCC`/`GND` on 3V3/GND; `BLK` on `GP0`. Wait a minute: the screen also turns off after 60 s idle, so turn the knob. |
+| Screen stays black | `VCC`/`GND` on 3V3/GND; `BLK` on `GP0`. Wait a minute: the screen also turns off after 30 s idle, so turn the knob. |
 | Screen lights up but shows garbage or nothing | `SCL`→`GP2` and `SDA`→`GP3` (SPI only works on those pins), `CS`/`DC`/`RST` on `GP1`/`GP4`/`GP5`. Shorter wires help. |
 | Image shifted, or a noisy strip on one edge | Adjust `LCD_OFFSET_X`/`LCD_OFFSET_Y` in `qmk/.../config.h` and rebuild. |
 | Colors inverted | Uncomment `NV3007_INVERT` in `config.h` and rebuild. |

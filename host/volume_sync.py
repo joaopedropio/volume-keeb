@@ -27,6 +27,7 @@ APP_ENTRY_CMD = 0x61
 APP_END_CMD = 0x62
 TITLE_CMD = 0x54  # 'T'
 THEME_CMD = 0x63
+BOOTLOADER_CMD = 0x64
 CTRL_CMD = 0x70
 ACTION_SET_VOLUME = 0
 ACTION_TOGGLE_MUTE = 1
@@ -37,7 +38,7 @@ TITLE_MAX = 87
 HEARTBEAT_S = 2  # firmware shows "no host" after 5 s without a packet
 
 # Index into keymap.c's `themes[]` — keep in sync with it.
-THEMES = {"terminal": 0, "neobrutal": 1, "winamp": 2}
+THEMES = {"terminal": 0, "neobrutal": 1, "winamp": 2, "neon": 3}
 
 
 def find_hidraw():
@@ -232,10 +233,25 @@ def main():
     parser.add_argument(
         "--theme",
         choices=sorted(THEMES),
-        default="terminal",
+        default="neon",
         help="display theme to push to the knob (default: %(default)s)",
     )
+    parser.add_argument(
+        "--bootloader",
+        action="store_true",
+        help="reboot the knob into its BOOTSEL bootloader (for flashing) and exit",
+    )
     args = parser.parse_args()
+
+    if args.bootloader:
+        path = find_hidraw()
+        if path is None:
+            sys.exit("knob not found")
+        fd = os.open(path, os.O_RDWR)
+        # Leading 0 = report ID; QMK's Raw HID reports are unnumbered.
+        os.write(fd, b"\0" + bytes([BOOTLOADER_CMD]).ljust(RAW_EPSIZE, b"\0"))
+        os.close(fd)
+        return
 
     knob = Knob(theme_id=THEMES[args.theme])
     apps_by_id = {}
