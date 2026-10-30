@@ -34,6 +34,7 @@ Everything you need to change the firmware, the host daemon or the case. If you 
 | `case/volume_case-{top,base}.stl` | The two prints, exported from the `.scad`. |
 | `case/view/*.stl`, `case/viewer.html` | Stand-ins for the electronics and the WebGL page that shows them inside the case. |
 | `case/gen_case.sh`, `case/deploy_pages.sh` | Export + check the case; copy the viewer to GitHub Pages. |
+| `docs/wiring.svg`, `docs/gen_wiring.py` | The README's wiring picture and the script that draws it (to scale, from the `.scad`'s numbers; rerun it after changing pins). |
 
 ## Firmware
 

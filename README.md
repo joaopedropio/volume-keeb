@@ -197,18 +197,9 @@ Once it's in the case, BOOT is pressed with a pin through the hole marked **`B`*
 > [!NOTE]
 > The RP2040-Zero has one `3V3` pad and one `GND` pad, but both the encoder and the screen need them. Join each pair of wires into one (twist and tin them together, or splice them with heat-shrink) and solder that to the pad.
 
-```
-                 ┌──────────────── RP2040-Zero ────────────────┐
-  HW-040                                                    NV3007 LCD
-  CLK ───────────── GP27        ┌────────────────────────── GND (1)
-  DT  ───────────── GP28        │  ┌─────────────────────── VCC (2)
-  SW  ───────────── GP29        │  │   GP2 ──────────────── SCL (3)
-  +   ───────────── 3V3 ────────┼──┘   GP3 ──────────────── SDA (4)
-  GND ───────────── GND ────────┘      GP5 ──────────────── RST (5)
-                                       GP4 ──────────────── DC  (6)
-                                       GP1 ──────────────── CS  (7)
-                                       GP0 ──────────────── BLK (8)
-```
+![Wiring: the NV3007 screen from the back, the RP2040-Zero from the back and the HW-040 from the top, with each wire drawn in its own color](docs/wiring.svg)
+
+Each part is drawn from the side you solder it on: the screen and the RP2040-Zero from the back (the board as it lies in the case, upside down), the encoder from the top. The screen's `VCC` and `GND` join the encoder's `+` and `GND` just before the board's `3V3` and `GND` pads.
 
 ### Wire lengths and routing
 

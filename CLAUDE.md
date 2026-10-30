@@ -15,6 +15,7 @@ Sibling project to [single-keeyb](https://github.com/joaopedropio/single-keeyb) 
   - The encoder is chosen with `encoder`. Only `"hw040"` is measured: its numbers come from `hw-040-encoder-module.stp` and `hw-040-module-dimensions.webp` in the repo root. The RP2040-Zero's come from `rp2040-zero-2.snapshot.6/` (the "without headers" STEP).
   - `"ky040"` deliberately fails an `assert` until real measurements are added to `enc_dims()`. Don't fill it with guessed values.
   - The root's `maxmix_base_*.stl` are only a visual reference for the shape. The reference STL/STEP files stay untracked.
+- `docs/wiring.svg` — the README's wiring picture, written by `docs/gen_wiring.py` (stdlib only, adapted from dongle-slayer's `tools/gen_wiring.py`; kept in git). Each part is drawn from the side it's soldered on and to scale from `volume_case.scad`'s numbers. Rerun it when pins change, along with the README's tables.
 - `qmk/waveshare_rp2040_zero_volume/graphics/*.qff.c` — Quantum Painter fonts, regenerated (not hand-edited) with `qmk painter-make-font-image` + `qmk painter-convert-font-image` from DejaVu Sans Mono; see the header comment each file carries for the exact invocation.
 
 ## Firmware architecture
