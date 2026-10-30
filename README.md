@@ -178,18 +178,18 @@ Once it's in the case, BOOT is pressed with a pin through the hole marked **`B`*
 | `+` | `3V3` |
 | `GND` | `GND` |
 
-**Screen (NV3007):**
+**Screen (NV3007),** in the order of the module's pads, so you can solder them one after the other:
 
-| LCD pin | RP2040-Zero pin |
-|---|---|
-| `VCC` | `3V3` |
-| `GND` | `GND` |
-| `SCL` (SCK) | `GP2` |
-| `SDA` (MOSI) | `GP3` |
-| `CS` | `GP1` |
-| `DC` | `GP4` |
-| `RST` | `GP5` |
-| `BLK` | `GP0` |
+| # | LCD pin | RP2040-Zero pin |
+|---|---|---|
+| 1 | `GND` | `GND` |
+| 2 | `VCC` | `3V3` |
+| 3 | `SCL` (SCK) | `GP2` |
+| 4 | `SDA` (MOSI) | `GP3` |
+| 5 | `RST` | `GP5` |
+| 6 | `DC` | `GP4` |
+| 7 | `CS` | `GP1` |
+| 8 | `BLK` | `GP0` |
 
 > [!CAUTION]
 > Power the encoder and the screen from **3V3**, not 5V. The RP2040's pins are not 5V tolerant.
@@ -200,14 +200,14 @@ Once it's in the case, BOOT is pressed with a pin through the hole marked **`B`*
 ```
                  ┌──────────────── RP2040-Zero ────────────────┐
   HW-040                                                    NV3007 LCD
-  CLK ───────────── GP27                 GP0 ──────────────── BLK
-  DT  ───────────── GP28                 GP1 ──────────────── CS
-  SW  ───────────── GP29                 GP2 ──────────────── SCL
-  +   ──────┬────── 3V3                  GP3 ──────────────── SDA
-  GND ───┬──┼────── GND                  GP4 ──────────────── DC
-         │  │                            GP5 ──────────────── RST
-         │  └──────────────────────────────────────────────── VCC
-         └─────────────────────────────────────────────────── GND
+  CLK ───────────── GP27        ┌────────────────────────── GND (1)
+  DT  ───────────── GP28        │  ┌─────────────────────── VCC (2)
+  SW  ───────────── GP29        │  │   GP2 ──────────────── SCL (3)
+  +   ───────────── 3V3 ────────┼──┘   GP3 ──────────────── SDA (4)
+  GND ───────────── GND ────────┘      GP5 ──────────────── RST (5)
+                                       GP4 ──────────────── DC  (6)
+                                       GP1 ──────────────── CS  (7)
+                                       GP0 ──────────────── BLK (8)
 ```
 
 ### Wire lengths and routing
