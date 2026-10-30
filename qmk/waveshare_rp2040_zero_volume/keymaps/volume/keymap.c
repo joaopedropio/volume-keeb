@@ -13,6 +13,7 @@
 #include "qp_nv3007.h"
 #include "graphics/font_ui.qff.h"
 #include "graphics/font_big.qff.h"
+#include "graphics/font_list.qff.h"
 
 enum custom_keycodes {
     ENC_CLICK = SAFE_RANGE,
@@ -180,9 +181,11 @@ static painter_device_t      panel;
 static bool                  flush_all = true;
 static painter_font_handle_t font_ui;
 static painter_font_handle_t font_big;
+static painter_font_handle_t font_list; // the menu's app list
 
 #define UI_CHAR_H 13
 #define BIG_CHAR_H 27
+#define LIST_CHAR_H 24
 #define MARGIN 6
 #define TEXT_W (LCD_WIDTH - 2 * MARGIN)
 
@@ -200,9 +203,9 @@ static painter_font_handle_t font_big;
 
 // Menu screen: a vertical list, one app per row ("name - song title"),
 // scrolling to keep the cursor in view.
-#define LIST_ROWS 5
-#define LIST_ROW_H 28
-#define LIST_BOX_H 24 // leaves room below each row for DECOR_BOXED's shadow
+#define LIST_ROWS 4
+#define LIST_ROW_H 35
+#define LIST_BOX_H 32 // leaves room below each row for DECOR_BOXED's shadow
 #define LIST_TOP ((LCD_HEIGHT - LIST_ROWS * LIST_ROW_H) / 2)
 #define LIST_PAD 8
 #define ACTIVE_DOT 5 // marks the row of the app the App screen would show, independent of the cursor
@@ -483,8 +486,8 @@ static void render_menu_screen(void) {
     lcd_clear_region(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
     if (app_count == 0) {
         const char *msg = "no apps";
-        uint16_t    w   = qp_textwidth(font_ui, msg);
-        qp_drawtext_recolor(lcd, (LCD_WIDTH - w) / 2, (LCD_HEIGHT - UI_CHAR_H) / 2, font_ui, msg, CT(dim), CT(bg));
+        uint16_t    w   = qp_textwidth(font_list, msg);
+        qp_drawtext_recolor(lcd, (LCD_WIDTH - w) / 2, (LCD_HEIGHT - LIST_CHAR_H) / 2, font_list, msg, CT(dim), CT(bg));
         return;
     }
 
@@ -527,16 +530,16 @@ static void render_menu_screen(void) {
             }
         }
 
-        uint16_t ty = y0 + (LIST_BOX_H - UI_CHAR_H) / 2;
+        uint16_t ty = y0 + (LIST_BOX_H - LIST_CHAR_H) / 2;
         char     name[NAME_MAX + 3];
-        fit_text(a->name, name, sizeof(name), font_ui, text_w);
-        uint16_t name_w = qp_textwidth(font_ui, name);
+        fit_text(a->name, name, sizeof(name), font_list, text_w);
+        uint16_t name_w = qp_textwidth(font_list, name);
         if (filled) {
-            qp_drawtext_recolor(lcd, text_x, ty, font_ui, name, CT(bg), CT(accent));
+            qp_drawtext_recolor(lcd, text_x, ty, font_list, name, CT(bg), CT(accent));
         } else if (sel) {
-            qp_drawtext_recolor(lcd, text_x, ty, font_ui, name, CT(accent), CT(well));
+            qp_drawtext_recolor(lcd, text_x, ty, font_list, name, CT(accent), CT(well));
         } else {
-            qp_drawtext_recolor(lcd, text_x, ty, font_ui, name, CT(fg), CT(bg));
+            qp_drawtext_recolor(lcd, text_x, ty, font_list, name, CT(fg), CT(bg));
         }
 
         // The song title, if any, after the name in the secondary color.
@@ -544,13 +547,13 @@ static void render_menu_screen(void) {
             char song[TITLE_MAX + 4];
             char fit[TITLE_MAX + 6];
             snprintf(song, sizeof(song), " - %s", a->title);
-            fit_text(song, fit, sizeof(fit), font_ui, text_w - name_w);
+            fit_text(song, fit, sizeof(fit), font_list, text_w - name_w);
             if (filled) {
-                qp_drawtext_recolor(lcd, text_x + name_w, ty, font_ui, fit, CT(bg), CT(accent));
+                qp_drawtext_recolor(lcd, text_x + name_w, ty, font_list, fit, CT(bg), CT(accent));
             } else if (sel) {
-                qp_drawtext_recolor(lcd, text_x + name_w, ty, font_ui, fit, CT(fg), CT(well));
+                qp_drawtext_recolor(lcd, text_x + name_w, ty, font_list, fit, CT(fg), CT(well));
             } else {
-                qp_drawtext_recolor(lcd, text_x + name_w, ty, font_ui, fit, CT(dim), CT(bg));
+                qp_drawtext_recolor(lcd, text_x + name_w, ty, font_list, fit, CT(dim), CT(bg));
             }
         }
     }
@@ -756,8 +759,9 @@ void keyboard_post_init_user(void) {
     qp_init(lcd, QP_ROTATION_0);
     lcd_clear_region(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
 
-    font_ui  = qp_load_font_mem(font_font_ui);
-    font_big = qp_load_font_mem(font_font_big);
+    font_ui   = qp_load_font_mem(font_font_ui);
+    font_big  = qp_load_font_mem(font_font_big);
+    font_list = qp_load_font_mem(font_font_list);
 
     ticker_surface = qp_make_rgb565_surface(TICKER_SURF_W, BIG_CHAR_H, ticker_buf);
     qp_init(ticker_surface, QP_ROTATION_0);

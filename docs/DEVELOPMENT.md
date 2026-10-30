@@ -113,7 +113,7 @@ qmk compile -kb handwired/onekey/waveshare_rp2040_zero_volume -km diag
 
 ### Fonts
 
-`graphics/*.qff.c` are Quantum Painter fonts generated from DejaVu Sans Mono with `qmk painter-make-font-image` + `qmk painter-convert-font-image`. Don't hand-edit them; each file's header comment has the exact command to regenerate it.
+`graphics/*.qff.c` are Quantum Painter fonts generated from DejaVu Sans Mono with `qmk painter-make-font-image` + `qmk painter-convert-font-image`. Don't hand-edit them; each file's header comment has the `painter-convert-font-image` arguments (`-f mono2`). The `--size` given to `painter-make-font-image` (with `--font /usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf`) is 11 for `font_ui` (13 px tall, header and labels) and 22 for `font_list` (24 px, the menu's app list, sized so 4 rows fill the screen).
 
 ## Host daemon
 
