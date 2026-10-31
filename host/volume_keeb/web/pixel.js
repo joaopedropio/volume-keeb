@@ -90,8 +90,44 @@ const Pixel = (() => {
 
   // One color per cell. mode: 'dominant' (the most common color, averaged
   // within its shade so compression noise doesn't leak in), 'center', 'mean'.
-  // colors > 0 reduces the whole animation to that many colors.
-  function build(src, grid, mode, colors) {
+  // Shades closer than `tol` to a more common color take that color (what
+  // JPEG and lossy GIFs smear around one flat color). Each color joins the
+  // most common one near it, so the real colors win.
+  function mergeSimilar(frames, tol) {
+    const hist = new Map();
+    for (const d of frames)
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i + 3] < 128) continue;
+        const k = (d[i] << 16) | (d[i + 1] << 8) | d[i + 2];
+        hist.set(k, (hist.get(k) || 0) + 1);
+      }
+    const keys = [...hist.keys()].sort((a, b) => hist.get(b) - hist.get(a));
+    const centers = [], map = new Map(), t2 = tol * tol;
+    for (const k of keys) {
+      const r = k >> 16, g = (k >> 8) & 255, b = k & 255;
+      let to = k;
+      for (const c of centers) {
+        const dr = r - (c >> 16), dg = g - ((c >> 8) & 255), db = b - (c & 255);
+        if (dr * dr + dg * dg + db * db <= t2) { to = c; break; }
+      }
+      if (to === k) {
+        if (centers.length >= 4096) break;  // a photo, not pixel art: leave the rest alone
+        centers.push(k);
+      }
+      map.set(k, to);
+    }
+    for (const d of frames)
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i + 3] < 128) continue;
+        const c = map.get((d[i] << 16) | (d[i + 1] << 8) | d[i + 2]);
+        if (c === undefined) continue;
+        d[i] = c >> 16; d[i + 1] = (c >> 8) & 255; d[i + 2] = c & 255;
+      }
+  }
+
+  // tol > 0 merges similar shades (mergeSimilar()); colors > 0 then reduces
+  // the whole animation to that many colors.
+  function build(src, grid, mode, colors, tol = 0) {
     const ax = axis(src.w, grid.cell, grid.ox), ay = axis(src.h, grid.cell, grid.oy);
     const w = ax.count, h = ay.count, sw = src.w;
     const cap = (Math.ceil(grid.cell) + 2) ** 2;
@@ -129,6 +165,7 @@ const Pixel = (() => {
         }
       return out;
     });
+    if (tol > 0) mergeSimilar(frames, tol);
     if (colors > 0) {
       const pal = Gif.palette(frames, colors);
       for (const d of frames)

@@ -11,6 +11,7 @@
     --text: #e5e7ea; --dim: #949aa4; --accent: #7bd88f; --err: #ff7b72;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, sans-serif; }
   header { padding: 14px 24px; border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
   header h1 { margin: 0; font-size: 18px; }
@@ -66,13 +67,13 @@
 <div id="drop"></div>
 <header>
   <h1>GIF screensavers</h1>
-  <span>8-bit GIFs → the knob's 428 × 142 screen</span>
+  <span>8-bit GIFs and images → the knob's 428 × 142 screen</span>
   <a href="/">← Settings</a>
 </header>
 <main>
   <section>
     <h2><b>1</b>Import</h2>
-    <p class="lead">Paste a link to a GIF (or to its Giphy/Tenor page), or drop / paste an image file anywhere on the page.</p>
+    <p class="lead">Paste a link to a GIF or an image (PNG, JPEG, WebP; a Giphy/Tenor page works too), or drop / paste a file anywhere on the page. A still image makes a still screensaver.</p>
     <div class="row">
       <input type="text" id="url" placeholder="https://…/something.gif" spellcheck="false">
       <button class="go" id="load">Load</button>
@@ -104,6 +105,13 @@
           <option>256</option><option>64</option><option>32</option><option>16</option><option>8</option><option>4</option>
         </select>
       </label>
+      <label>Similar shades
+        <select id="merge">
+          <option value="0">keep</option>
+          <option value="24" selected>merge (light)</option>
+          <option value="48">merge (strong)</option>
+        </select>
+      </label>
     </div>
     <div class="row">
       <div class="seg" id="viewSeg"><button data-v="source">Source</button><button data-v="result" class="on">Result</button></div>
@@ -111,7 +119,7 @@
       <label>Zoom
         <select id="zoom"><option value="fit">fit</option><option>1</option><option>2</option><option>4</option><option>8</option></select>
       </label>
-      <label>Frame <input type="range" id="frame" min="0" value="0"><span id="frameN"></span></label>
+      <label class="anim">Frame <input type="range" id="frame" min="0" value="0"><span id="frameN"></span></label>
     </div>
     <div class="view" id="gridView"><canvas id="grid"></canvas></div>
     <p class="info" id="pixInfo"></p>
@@ -137,18 +145,18 @@
     <h2><b>4</b>Preview</h2>
     <div class="row">
       <label>Zoom <select id="pzoom"><option>1</option><option selected>2</option><option>3</option></select></label>
-      <label><input type="checkbox" id="play" checked> Play</label>
+      <label class="anim"><input type="checkbox" id="play" checked> Play</label>
     </div>
     <div class="bezel"><canvas id="preview" width="428" height="142"></canvas></div>
   </section>
 
   <section id="secSend" class="off">
     <h2><b>5</b>Send to the knob</h2>
-    <p class="lead">The knob keeps three GIF screensavers in its flash; they stay after a reboot or a firmware update. Pick the slot this one goes in.</p>
+    <p class="lead">The knob keeps three GIF (or still image) screensavers in its flash; they stay after a reboot or a firmware update. Pick the slot this one goes in.</p>
     <div class="slots" id="slots"></div>
     <div class="row">
       <label>Name <input type="text" id="gifName" maxlength="80" style="min-width: 160px; flex: 0 1 240px"></label>
-      <label>Frames
+      <label class="anim">Frames
         <select id="every"><option value="1">all</option><option value="2">every 2nd</option><option value="3">every 3rd</option><option value="4">every 4th</option></select>
       </label>
       <span class="info" id="sizeInfo"></span>
@@ -182,7 +190,7 @@ const SCREEN_W = 428, SCREEN_H = 142;
 const $ = id => document.getElementById(id);
 const S = {
   name: 'saver', src: null, art: null,
-  grid: { cell: 1, ox: 0, oy: 0 }, mode: 'dominant', colors: 0,
+  grid: { cell: 1, ox: 0, oy: 0 }, mode: 'dominant', colors: 0, merge: 24,
   view: 'result', flip: false, frame: 0,
   scale: 1, x: 0, y: 0, bg: [0, 0, 0],
   composed: [],
@@ -268,6 +276,7 @@ async function loadBytes(bytes, type, name) {
   S.frame = 0;
   $('frame').max = src.frames.length - 1;
   $('frame').value = 0;
+  for (const el of document.querySelectorAll('.anim')) el.hidden = src.frames.length < 2;
   status('loadStatus', `Loaded ${src.w} × ${src.h}, ${src.frames.length} frame${src.frames.length > 1 ? 's' : ''} (${(bytes.length / 1024).toFixed(0)} kB).`);
   for (const id of ['secPixels', 'secScreen', 'secOut', 'secSend', 'secSave']) $(id).classList.remove('off');
   $('gifName').value = name;
@@ -328,7 +337,7 @@ function rebuild(fresh) {
   const old = S.art;
   const cx = old ? S.x + cropW() / 2 : 0, cy = old ? S.y + cropH() / 2 : 0;
   const relX = old ? cx / old.w : 0.5, relY = old ? cy / old.h : 0.5;
-  S.art = Pixel.build(S.src, S.grid, S.mode, S.colors);
+  S.art = Pixel.build(S.src, S.grid, S.mode, S.colors, S.merge);
   S.art.images = S.art.frames.map(f => new ImageData(f.rgba, S.art.w, S.art.h));
   fillScales();
   if (fresh) {
@@ -406,6 +415,7 @@ $('frame').addEventListener('input', e => { S.frame = +e.target.value; drawGrid(
 $('detect').addEventListener('click', () => { autoDetect(); rebuild(false); });
 $('mode').addEventListener('change', e => { S.mode = e.target.value; rebuild(false); });
 $('colors').addEventListener('change', e => { S.colors = +e.target.value; rebuild(false); });
+$('merge').addEventListener('change', e => { S.merge = +e.target.value; rebuild(false); });
 
 // ---------- screen crop ----------
 
@@ -636,7 +646,8 @@ function measureSoon() {
     const max = knob ? knob.gif_max_bytes : Infinity;
     const kb = n => (n / 1024).toFixed(0) + ' kB';
     const tooBig = kva.bytes.length > max;
-    $('sizeInfo').innerHTML = `<b>${kb(kva.bytes.length)}</b> of the ${kb(max)} a slot holds · ${kva.frames} frame${kva.frames > 1 ? 's' : ''}, ${kva.colors} colors` +
+    $('sizeInfo').innerHTML = `<b>${kb(kva.bytes.length)}</b> of the ${kb(max)} a slot holds · ` +
+      (kva.frames > 1 ? `${kva.frames} frames, ` : 'still, ') + `${kva.colors} colors` +
       (tooBig ? ' · <span style="color: var(--err)">too big: use fewer frames, a bigger scale or fewer colors</span>' : '');
     renderSendButton();
   }, 250);
