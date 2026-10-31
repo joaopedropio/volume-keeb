@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GIF Saver</title>
+<style>
+  :root {
+    --bg: #121418; --panel: #1b1e24; --line: #2b3039; --field: #0f1115;
+    --text: #e5e7ea; --dim: #949aa4; --accent: #7bd88f; --err: #ff7b72;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, sans-serif; }
+  header { padding: 14px 24px; border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 18px; }
+  header span { color: var(--dim); }
+  main { max-width: 1120px; margin: 0 auto; padding: 16px 16px 64px; display: grid; gap: 16px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; min-width: 0; }
+  section.off { opacity: .45; pointer-events: none; }
+  h2 { margin: 0 0 4px; font-size: 15px; }
+  h2 b { color: var(--accent); margin-right: 6px; }
+  .lead { color: var(--dim); margin: 0 0 12px; font-size: 13px; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin-bottom: 10px; }
+  label { display: inline-flex; gap: 8px; align-items: center; color: var(--dim); }
+  input, select, button { font: inherit; color: var(--text); }
+  input[type=text], input[type=number], select {
+    background: var(--field); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px;
+  }
+  input[type=text] { flex: 1; min-width: 220px; }
+  input[type=number] { width: 78px; }
+  input[type=range] { width: 160px; accent-color: var(--accent); }
+  input[type=color] { width: 36px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; }
+  button { background: #2a2f38; border: 1px solid #3a404b; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  button:hover { background: #333944; }
+  button.go { background: var(--accent); color: #0d1a10; border-color: var(--accent); font-weight: 600; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; background: var(--field); }
+  .seg button.on { background: #343b46; color: var(--accent); }
+  .status { color: var(--dim); font-size: 13px; min-height: 1.4em; }
+  .status.err { color: var(--err); }
+  .view { overflow: auto; max-height: 560px; background: #08090b; border: 1px solid var(--line); border-radius: 6px; }
+  .view canvas { display: block; image-rendering: pixelated; }
+  #cropBox { background: #08090b; border: 1px solid var(--line); border-radius: 6px; display: flex; justify-content: center; padding: 8px; overflow: hidden; }
+  #crop { image-rendering: pixelated; cursor: grab; touch-action: none; }
+  #crop.drag { cursor: grabbing; }
+  .bezel { display: flex; justify-content: center; overflow-x: auto; padding: 18px; background: #050506; border-radius: 10px; }
+  .bezel canvas { image-rendering: pixelated; border: 6px solid #1c1c1f; border-radius: 4px; box-shadow: 0 0 0 1px #000; flex: none; }
+  .info { color: var(--dim); font-size: 13px; }
+  .info b { color: var(--text); font-weight: 600; }
+  #drop { position: fixed; inset: 0; background: rgba(123, 216, 143, .12); border: 3px dashed var(--accent); display: none; z-index: 9; }
+  body.dragging #drop { display: block; }
+</style>
+</head>
+<body>
+<div id="drop"></div>
+<header>
+  <h1>GIF Saver</h1>
+  <span>8-bit GIFs → the knob's 428 × 142 screen</span>
+</header>
+<main>
+  <section>
+    <h2><b>1</b>Import</h2>
+    <p class="lead">Paste a link to a GIF (or to its Giphy/Tenor page), or drop / paste an image file anywhere on the page.</p>
+    <div class="row">
+      <input type="text" id="url" placeholder="https://…/something.gif" spellcheck="false">
+      <button class="go" id="load">Load</button>
+      <label><input type="file" id="file" accept="image/*" hidden><button id="pick">Open file…</button></label>
+    </div>
+    <div class="status" id="loadStatus"></div>
+  </section>
+
+  <section id="secPixels" class="off">
+    <h2><b>2</b>Pixels</h2>
+    <p class="lead">Find the size of one "8-bit" pixel in the image, so each one becomes a single pixel again. Auto-detect usually gets it; check the grid lines sit on the pixel borders and compare Source and Result (hold the mouse on the image to flip).</p>
+    <div class="row">
+      <label>Pixel size <input type="range" id="cellR" min="1" max="32" step="0.01"><input type="number" id="cellN" min="1" max="64" step="0.01"></label>
+      <label>Offset X <input type="range" id="oxR" min="0" step="0.01"><input type="number" id="oxN" min="0" step="0.01"></label>
+      <label>Offset Y <input type="range" id="oyR" min="0" step="0.01"><input type="number" id="oyN" min="0" step="0.01"></label>
+      <button id="detect">Auto-detect</button>
+    </div>
+    <div class="row">
+      <label>Color from
+        <select id="mode">
+          <option value="dominant">most common in the pixel</option>
+          <option value="center">center of the pixel</option>
+          <option value="mean">average of the pixel</option>
+        </select>
+      </label>
+      <label>Colors
+        <select id="colors">
+          <option value="0">keep all</option>
+          <option>256</option><option>64</option><option>32</option><option>16</option><option>8</option><option>4</option>
+        </select>
+      </label>
+    </div>
+    <div class="row">
+      <div class="seg" id="viewSeg"><button data-v="source">Source</button><button data-v="result" class="on">Result</button></div>
+      <label><input type="checkbox" id="showGrid" checked> Grid</label>
+      <label>Zoom
+        <select id="zoom"><option value="fit">fit</option><option>1</option><option>2</option><option>4</option><option>8</option></select>
+      </label>
+      <label>Frame <input type="range" id="frame" min="0" value="0"><span id="frameN"></span></label>
+    </div>
+    <div class="view" id="gridView"><canvas id="grid"></canvas></div>
+    <p class="info" id="pixInfo"></p>
+  </section>
+
+  <section id="secScreen" class="off">
+    <h2><b>3</b>Screen</h2>
+    <p class="lead">Each art pixel is shown as a square of screen pixels. Drag the frame (or click where it should go) to pick the part that ends up on the screen; scroll over it to change the scale.</p>
+    <div class="row">
+      <label>Scale
+        <select id="scale"></select>
+      </label>
+      <button id="fill">Fill screen</button>
+      <button id="fit">Fit whole image</button>
+      <button id="center">Center</button>
+      <label>Background <input type="color" id="bg" value="#000000"></label>
+    </div>
+    <div id="cropBox"><canvas id="crop"></canvas></div>
+    <p class="info" id="cropInfo"></p>
+  </section>
+
+  <section id="secOut" class="off">
+    <h2><b>4</b>Preview &amp; export</h2>
+    <div class="row">
+      <label>Zoom <select id="pzoom"><option>1</option><option selected>2</option><option>3</option></select></label>
+      <label><input type="checkbox" id="play" checked> Play</label>
+    </div>
+    <div class="bezel"><canvas id="preview" width="428" height="142"></canvas></div>
+    <div class="row" style="margin-top: 12px">
+      <button class="go" id="saveScreen">Download screen GIF (428 × 142)</button>
+      <button id="saveArt">Download art-pixel GIF</button>
+    </div>
+    <p class="info">The screen GIF is exactly what the panel shows. The art-pixel GIF is the same cut at one pixel per art pixel (the scale goes in its name): far smaller, and it gets drawn scaled up.</p>
+    <div class="status" id="saveStatus"></div>
+  </section>
+</main>
+
+<script src="gif.js"></script>
+<script src="pixel.js"></script>
+<script>
+'use strict';
+const SCREEN_W = 428, SCREEN_H = 142;
+const $ = id => document.getElementById(id);
+const S = {
+  name: 'saver', src: null, art: null,
+  grid: { cell: 1, ox: 0, oy: 0 }, mode: 'dominant', colors: 0,
+  view: 'result', flip: false, frame: 0,
+  scale: 1, x: 0, y: 0, bg: [0, 0, 0],
+  composed: [],
+};
+
+// ---------- import ----------
+
+function status(el, text, err) {
+  $(el).textContent = text;
+  $(el).classList.toggle('err', !!err);
+}
+
+function nameFrom(s) {
+  const base = (s.split(/[?#]/)[0].split('/').filter(Boolean).pop() || 'saver').replace(/\.[a-z0-9]+$/i, '');
+  return base.replace(/[^\w-]+/g, '_').slice(0, 40) || 'saver';
+}
+
+async function loadUrl(url) {
+  url = url.trim();
+  if (!url) return;
+  status('loadStatus', 'Downloading…');
+  try {
+    const res = location.protocol.startsWith('http')
+      ? await fetch('fetch?url=' + encodeURIComponent(url))
+      : await fetch(url);
+    if (!res.ok) throw new Error(await res.text() || res.statusText);
+    await loadBytes(new Uint8Array(await res.arrayBuffer()), res.headers.get('content-type') || '', nameFrom(url));
+  } catch (e) {
+    const hint = location.protocol.startsWith('http') ? '' : ' (open the page through serve.py to load links)';
+    status('loadStatus', 'Couldn\'t load it: ' + e.message + hint, true);
+  }
+}
+
+async function loadFile(file) {
+  status('loadStatus', 'Reading ' + file.name + '…');
+  try {
+    await loadBytes(new Uint8Array(await file.arrayBuffer()), file.type, nameFrom(file.name));
+  } catch (e) {
+    status('loadStatus', 'Couldn\'t read it: ' + e.message, true);
+  }
+}
+
+function sniff(b, fallback) {
+  if (b[0] === 0x89 && b[1] === 0x50) return 'image/png';
+  if (b[0] === 0xFF && b[1] === 0xD8) return 'image/jpeg';
+  if (b[0] === 0x52 && b[8] === 0x57 && b[9] === 0x45) return 'image/webp';
+  return fallback.startsWith('image/') ? fallback : 'image/png';
+}
+
+function imageToRgba(img, w, h) {
+  const c = new OffscreenCanvas(w, h), x = c.getContext('2d');
+  x.drawImage(img, 0, 0);
+  return x.getImageData(0, 0, w, h).data;
+}
+
+async function decodeAny(bytes, type) {
+  if (Gif.isGif(bytes)) return Gif.decode(bytes);
+  type = sniff(bytes, type);
+  if ('ImageDecoder' in window && await ImageDecoder.isTypeSupported(type)) {
+    const dec = new ImageDecoder({ data: bytes, type });
+    await dec.tracks.ready;
+    const n = dec.tracks.selectedTrack.frameCount;
+    const frames = [];
+    let w = 0, h = 0;
+    for (let i = 0; i < n; i++) {
+      const { image } = await dec.decode({ frameIndex: i });
+      w = image.displayWidth; h = image.displayHeight;
+      frames.push({ rgba: imageToRgba(image, w, h), delay: Math.max(20, (image.duration || 100000) / 1000) });
+      image.close();
+    }
+    dec.close();
+    return { w, h, frames };
+  }
+  const bmp = await createImageBitmap(new Blob([bytes], { type }));
+  return { w: bmp.width, h: bmp.height, frames: [{ rgba: imageToRgba(bmp, bmp.width, bmp.height), delay: 100 }] };
+}
+
+async function loadBytes(bytes, type, name) {
+  const src = await decodeAny(bytes, type);
+  S.src = src;
+  S.name = name;
+  S.frame = 0;
+  $('frame').max = src.frames.length - 1;
+  $('frame').value = 0;
+  status('loadStatus', `Loaded ${src.w} × ${src.h}, ${src.frames.length} frame${src.frames.length > 1 ? 's' : ''} (${(bytes.length / 1024).toFixed(0)} kB).`);
+  for (const id of ['secPixels', 'secScreen', 'secOut']) $(id).classList.remove('off');
+  autoDetect();
+  rebuild(true);
+}
+
+// ---------- pixel grid ----------
+
+function autoDetect() {
+  const g = Pixel.detect(S.src);
+  S.grid = { cell: g.cell, ox: g.ox, oy: g.oy };
+  syncGridInputs();
+  $('pixInfo').dataset.detect = g.cell > 1
+    ? `Auto-detect: ${g.cell} px per art pixel (${Math.round(g.cover * 100)}% of the edges on the grid).`
+    : 'Auto-detect found no pixel grid; the image may already be at 1 px per art pixel.';
+}
+
+function syncGridInputs() {
+  const { cell, ox, oy } = S.grid;
+  $('cellR').value = $('cellN').value = cell;
+  for (const k of ['ox', 'oy']) {
+    $(k + 'R').max = $(k + 'N').max = Math.max(0.01, cell - 0.01);
+    $(k + 'R').value = $(k + 'N').value = S.grid[k];
+  }
+}
+
+function bindPair(r, n, key) {
+  const set = v => {
+    v = parseFloat(v);
+    if (!isFinite(v)) return;
+    if (key === 'cell') v = Math.min(64, Math.max(1, v));
+    else v = Math.min(S.grid.cell - 0.01, Math.max(0, v));
+    S.grid[key] = v;
+    if (key === 'cell') {
+      S.grid.ox = Math.min(S.grid.ox, Math.max(0, v - 0.01));
+      S.grid.oy = Math.min(S.grid.oy, Math.max(0, v - 0.01));
+    }
+    syncGridInputs();
+    rebuildSoon();
+  };
+  $(r).addEventListener('input', e => set(e.target.value));
+  $(n).addEventListener('change', e => set(e.target.value));
+}
+bindPair('cellR', 'cellN', 'cell');
+bindPair('oxR', 'oxN', 'ox');
+bindPair('oyR', 'oyN', 'oy');
+
+let rebuildTimer = 0;
+function rebuildSoon() {
+  clearTimeout(rebuildTimer);
+  rebuildTimer = setTimeout(() => rebuild(false), 40);
+}
+
+// fresh: a new image (default scale, centered); otherwise the crop keeps its spot.
+function rebuild(fresh) {
+  if (!S.src) return;
+  const old = S.art;
+  const cx = old ? S.x + cropW() / 2 : 0, cy = old ? S.y + cropH() / 2 : 0;
+  const relX = old ? cx / old.w : 0.5, relY = old ? cy / old.h : 0.5;
+  S.art = Pixel.build(S.src, S.grid, S.mode, S.colors);
+  S.art.images = S.art.frames.map(f => new ImageData(f.rgba, S.art.w, S.art.h));
+  fillScales();
+  if (fresh) {
+    S.scale = fillScale();
+    $('scale').value = S.scale;
+    centerCrop();
+  } else {
+    S.x = Math.round(relX * S.art.w - cropW() / 2);
+    S.y = Math.round(relY * S.art.h - cropH() / 2);
+    clampCrop();
+  }
+  S.composed = [];
+  const a = S.art;
+  $('pixInfo').innerHTML = `Source <b>${S.src.w} × ${S.src.h}</b> → <b>${a.w} × ${a.h}</b> art pixels, ${a.frames.length} frame${a.frames.length > 1 ? 's' : ''}. ` + ($('pixInfo').dataset.detect || '');
+  drawGrid();
+  drawCrop();
+}
+
+function artCanvas(f) {
+  const c = artCanvas.c || (artCanvas.c = document.createElement('canvas'));
+  c.width = S.art.w; c.height = S.art.h;
+  c.getContext('2d').putImageData(S.art.images[f], 0, 0);
+  return c;
+}
+
+function srcCanvas(f) {
+  const c = srcCanvas.c || (srcCanvas.c = document.createElement('canvas'));
+  c.width = S.src.w; c.height = S.src.h;
+  c.getContext('2d').putImageData(new ImageData(S.src.frames[f].rgba, S.src.w, S.src.h), 0, 0);
+  return c;
+}
+
+function drawGrid() {
+  const src = S.src, art = S.art, cv = $('grid');
+  const zsel = $('zoom').value;
+  const avail = $('gridView').clientWidth - 2;
+  const z = zsel === 'fit' ? Math.min(8, avail / src.w, 556 / src.h) : +zsel;
+  const dpr = window.devicePixelRatio || 1;
+  const q = Math.max(1, Math.min(Math.ceil(z * dpr), Math.floor(8000 / Math.max(src.w, src.h))));
+  cv.width = src.w * q; cv.height = src.h * q;
+  cv.style.width = src.w * z + 'px'; cv.style.height = src.h * z + 'px';
+  const x = cv.getContext('2d');
+  x.imageSmoothingEnabled = false;
+  x.setTransform(q, 0, 0, q, 0, 0);
+  const view = S.flip ? (S.view === 'source' ? 'result' : 'source') : S.view;
+  const c = S.grid.cell;
+  x.fillStyle = '#08090b';
+  x.fillRect(0, 0, src.w, src.h);
+  if (view === 'source') x.drawImage(srcCanvas(S.frame), 0, 0);
+  else x.drawImage(artCanvas(S.frame), art.startX, art.startY, art.w * c, art.h * c);
+  if ($('showGrid').checked && c * z >= 3) {
+    x.strokeStyle = 'rgba(255, 60, 200, .55)';
+    x.lineWidth = 1 / q;
+    x.beginPath();
+    for (let i = 0; i <= art.w; i++) { const gx = art.startX + i * c; x.moveTo(gx, 0); x.lineTo(gx, src.h); }
+    for (let j = 0; j <= art.h; j++) { const gy = art.startY + j * c; x.moveTo(0, gy); x.lineTo(src.w, gy); }
+    x.stroke();
+  }
+  $('frameN').textContent = `${S.frame + 1}/${src.frames.length}`;
+}
+
+$('viewSeg').addEventListener('click', e => {
+  const v = e.target.dataset.v;
+  if (!v) return;
+  S.view = v;
+  for (const b of $('viewSeg').children) b.classList.toggle('on', b.dataset.v === v);
+  drawGrid();
+});
+$('grid').addEventListener('pointerdown', () => { S.flip = true; drawGrid(); });
+addEventListener('pointerup', () => { if (S.flip) { S.flip = false; drawGrid(); } });
+$('showGrid').addEventListener('change', drawGrid);
+$('zoom').addEventListener('change', drawGrid);
+$('frame').addEventListener('input', e => { S.frame = +e.target.value; drawGrid(); drawCrop(); });
+$('detect').addEventListener('click', () => { autoDetect(); rebuild(false); });
+$('mode').addEventListener('change', e => { S.mode = e.target.value; rebuild(false); });
+$('colors').addEventListener('change', e => { S.colors = +e.target.value; rebuild(false); });
+
+// ---------- screen crop ----------
+
+const cropW = () => SCREEN_W / S.scale;
+const cropH = () => SCREEN_H / S.scale;
+const fillScale = () => Math.max(1, Math.ceil(Math.max(SCREEN_W / S.art.w, SCREEN_H / S.art.h) - 1e-9));
+const fitScale = () => Math.max(1, Math.floor(Math.min(SCREEN_W / S.art.w, SCREEN_H / S.art.h)));
+
+function fillScales() {
+  const sel = $('scale'), max = Math.max(16, fillScale());
+  S.scale = Math.min(S.scale, max);
+  if (sel.options.length === max) return;
+  sel.innerHTML = '';
+  for (let s = 1; s <= max; s++) sel.add(new Option(`${s}× (${Math.ceil(SCREEN_W / s)} × ${Math.ceil(SCREEN_H / s)} art px)`, s));
+  sel.value = S.scale;
+}
+
+// The frame stays inside the image when it's smaller, the image inside the
+// frame when it's bigger.
+function range(size, win) {
+  return size >= win ? [0, Math.floor(size - win)] : [Math.ceil(size - win), 0];
+}
+function clampCrop() {
+  const [x0, x1] = range(S.art.w, cropW()), [y0, y1] = range(S.art.h, cropH());
+  S.x = Math.min(x1, Math.max(x0, Math.round(S.x)));
+  S.y = Math.min(y1, Math.max(y0, Math.round(S.y)));
+}
+function centerCrop() {
+  S.x = Math.round((S.art.w - cropW()) / 2);
+  S.y = Math.round((S.art.h - cropH()) / 2);
+  clampCrop();
+}
+
+function setScale(s, keepCenter = true) {
+  s = Math.max(1, Math.min($('scale').options.length, s));
+  if (s === S.scale) return;
+  const cx = S.x + cropW() / 2, cy = S.y + cropH() / 2;
+  S.scale = s;
+  $('scale').value = s;
+  if (keepCenter) { S.x = cx - cropW() / 2; S.y = cy - cropH() / 2; }
+  clampCrop();
+  cropChanged();
+}
+
+function cropChanged() {
+  S.composed = [];
+  drawCrop();
+}
+
+let cropView = null;  // {x0, y0, z} of the last draw, for the mouse
+function drawCrop() {
+  if (!S.art) return;
+  const art = S.art, cv = $('crop');
+  const rw = cropW(), rh = cropH();
+  const [x0, x1] = range(art.w, rw), [y0, y1] = range(art.h, rh);
+  const wx0 = Math.min(0, x0), wy0 = Math.min(0, y0);
+  const ww = Math.max(art.w, x1 + rw) - wx0, wh = Math.max(art.h, y1 + rh) - wy0;
+  const pad = 4;
+  const avail = $('cropBox').clientWidth - 18;
+  const z = Math.min(avail / (ww + 2 * pad), 380 / (wh + 2 * pad));
+  const dpr = window.devicePixelRatio || 1, q = Math.max(1, Math.ceil(z * dpr));
+  const W = ww + 2 * pad, H = wh + 2 * pad;
+  cv.width = Math.round(W * q); cv.height = Math.round(H * q);
+  cv.style.width = W * z + 'px'; cv.style.height = H * z + 'px';
+  cropView = { x0: wx0 - pad, y0: wy0 - pad, z };
+  const x = cv.getContext('2d');
+  x.imageSmoothingEnabled = false;
+  x.setTransform(q, 0, 0, q, -(wx0 - pad) * q, -(wy0 - pad) * q);
+  x.fillStyle = '#08090b';
+  x.fillRect(wx0 - pad, wy0 - pad, W, H);
+  x.fillStyle = `rgb(${S.bg})`;
+  x.fillRect(S.x, S.y, rw, rh);
+  x.drawImage(artCanvas(S.frame), 0, 0);
+  // dim everything outside the frame
+  x.fillStyle = 'rgba(8, 9, 11, .7)';
+  x.beginPath();
+  x.rect(wx0 - pad, wy0 - pad, W, H);
+  x.rect(S.x, S.y, rw, rh);
+  x.fill('evenodd');
+  x.strokeStyle = '#7bd88f';
+  x.lineWidth = 2 / q;
+  x.strokeRect(S.x, S.y, rw, rh);
+  const outside = rw > art.w || rh > art.h;
+  $('cropInfo').innerHTML = `Scale <b>${S.scale}×</b>: the screen shows <b>${+rw.toFixed(2)} × ${+rh.toFixed(2)}</b> art pixels, from (${S.x}, ${S.y}).` +
+    (rw % 1 || rh % 1 ? ' The last column/row is cut partway.' : '') +
+    (outside ? ' The image doesn\'t cover the whole screen; the rest is the background color.' : '');
+}
+
+let drag = null;
+$('crop').addEventListener('pointerdown', e => {
+  if (!cropView) return;
+  const r = $('crop').getBoundingClientRect();
+  const ax = cropView.x0 + (e.clientX - r.left) / cropView.z, ay = cropView.y0 + (e.clientY - r.top) / cropView.z;
+  const inside = ax >= S.x && ax < S.x + cropW() && ay >= S.y && ay < S.y + cropH();
+  if (!inside) { S.x = ax - cropW() / 2; S.y = ay - cropH() / 2; clampCrop(); cropChanged(); }
+  drag = { mx: e.clientX, my: e.clientY, x: S.x, y: S.y };
+  $('crop').setPointerCapture(e.pointerId);
+  $('crop').classList.add('drag');
+});
+$('crop').addEventListener('pointermove', e => {
+  if (!drag) return;
+  const nx = drag.x + (e.clientX - drag.mx) / cropView.z, ny = drag.y + (e.clientY - drag.my) / cropView.z;
+  const ox = S.x, oy = S.y;
+  S.x = nx; S.y = ny;
+  clampCrop();
+  if (S.x !== ox || S.y !== oy) cropChanged();
+});
+$('crop').addEventListener('pointerup', () => { drag = null; $('crop').classList.remove('drag'); });
+$('crop').addEventListener('wheel', e => {
+  e.preventDefault();
+  setScale(S.scale + (e.deltaY < 0 ? 1 : -1));
+}, { passive: false });
+$('scale').addEventListener('change', e => setScale(+e.target.value));
+$('fill').addEventListener('click', () => { setScale(fillScale()); });
+$('fit').addEventListener('click', () => { setScale(fitScale()); centerCrop(); cropChanged(); });
+$('center').addEventListener('click', () => { centerCrop(); cropChanged(); });
+$('bg').addEventListener('input', e => {
+  const v = e.target.value;
+  S.bg = [1, 3, 5].map(i => parseInt(v.slice(i, i + 2), 16));
+  cropChanged();
+});
+addEventListener('resize', () => { if (S.art) { drawGrid(); drawCrop(); } });
+
+// ---------- preview & export ----------
+
+function screenFrame(f) {
+  if (!S.composed[f])
+    S.composed[f] = Pixel.compose(S.art, S.art.frames[f].rgba, S.x, S.y, S.scale, SCREEN_W, SCREEN_H, S.bg);
+  return S.composed[f];
+}
+
+const pctx = $('preview').getContext('2d');
+let pf = 0, pNext = 0;
+function tick(t) {
+  requestAnimationFrame(tick);
+  if (!S.art) return;
+  const n = S.art.frames.length;
+  if (pf >= n) pf = 0;
+  if ($('play').checked && n > 1) {
+    if (t >= pNext) {
+      pf = (pf + 1) % n;
+      pNext = t + S.art.frames[pf].delay;
+    }
+  } else {
+    pf = S.frame;
+  }
+  pctx.putImageData(new ImageData(screenFrame(pf), SCREEN_W, SCREEN_H), 0, 0);
+}
+requestAnimationFrame(tick);
+
+function setPreviewZoom() {
+  const z = +$('pzoom').value;
+  $('preview').style.width = SCREEN_W * z + 'px';
+  $('preview').style.height = SCREEN_H * z + 'px';
+}
+$('pzoom').addEventListener('change', setPreviewZoom);
+setPreviewZoom();
+
+function download(bytes, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([bytes], { type: 'image/gif' }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+function saveGif(w, h, frames, name) {
+  status('saveStatus', 'Encoding…');
+  setTimeout(() => {
+    try {
+      const bytes = Gif.encode(w, h, frames, S.art.frames.map(f => f.delay));
+      download(bytes, name);
+      status('saveStatus', `Saved ${name}: ${w} × ${h}, ${frames.length} frame${frames.length > 1 ? 's' : ''}, ${(bytes.length / 1024).toFixed(1)} kB.`);
+    } catch (e) {
+      status('saveStatus', 'Couldn\'t encode it: ' + e.message, true);
+    }
+  }, 20);
+}
+
+$('saveScreen').addEventListener('click', () => {
+  const frames = S.art.frames.map((_, f) => screenFrame(f));
+  saveGif(SCREEN_W, SCREEN_H, frames, `${S.name}_428x142.gif`);
+});
+$('saveArt').addEventListener('click', () => {
+  const w = Math.ceil(cropW()), h = Math.ceil(cropH());
+  const frames = S.art.frames.map(f => Pixel.compose(S.art, f.rgba, S.x, S.y, 1, w, h, S.bg));
+  saveGif(w, h, frames, `${S.name}_${w}x${h}_x${S.scale}.gif`);
+});
+
+// ---------- input wiring ----------
+
+$('load').addEventListener('click', () => loadUrl($('url').value));
+$('url').addEventListener('keydown', e => { if (e.key === 'Enter') loadUrl($('url').value); });
+$('pick').addEventListener('click', () => $('file').click());
+$('file').addEventListener('change', e => { if (e.target.files[0]) loadFile(e.target.files[0]); e.target.value = ''; });
+
+addEventListener('paste', e => {
+  const file = [...e.clipboardData.files].find(f => f.type.startsWith('image/'));
+  if (file) { e.preventDefault(); loadFile(file); return; }
+  if (e.target === $('url')) {
+    const text = e.clipboardData.getData('text').trim();
+    if (/^https?:\/\//.test(text)) setTimeout(() => loadUrl($('url').value), 0);
+  }
+});
+
+let dragDepth = 0;
+addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; document.body.classList.add('dragging'); });
+addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove('dragging'); } });
+addEventListener('dragover', e => e.preventDefault());
+addEventListener('drop', e => {
+  e.preventDefault();
+  dragDepth = 0;
+  document.body.classList.remove('dragging');
+  const file = [...e.dataTransfer.files].find(f => f.type.startsWith('image/'));
+  if (file) return loadFile(file);
+  const url = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
+  if (url) { $('url').value = url.trim(); loadUrl(url); }
+});
+</script>
+</body>
+</html>
