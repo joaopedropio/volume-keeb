@@ -12,6 +12,7 @@
     },
     "features": {
         "encoder": true,
+        "extrakey": true,
         "quantum_painter": true,
         "raw": true
     }

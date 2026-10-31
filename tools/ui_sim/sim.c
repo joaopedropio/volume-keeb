@@ -8,6 +8,10 @@ static uint32_t last_input = 1000;
 uint32_t last_input_activity_elapsed(void) { return sim_now - last_input; }
 uint16_t sim_fb[LCD_WIDTH * LCD_HEIGHT];
 
+void tap_code(uint8_t code) {
+    printf("key %s\n", code == KC_AUDIO_VOL_UP ? "vol+" : code == KC_AUDIO_VOL_DOWN ? "vol-" : code == KC_AUDIO_MUTE ? "mute" : "?");
+}
+
 static uint8_t sim_eeprom[EECONFIG_USER_DATA_SIZE];
 static bool    sim_eeprom_valid;
 bool eeconfig_is_user_datablock_valid(void) { return sim_eeprom_valid; }
@@ -70,6 +74,14 @@ static void send_snapshot(void) {
     raw_hid_receive(p, sizeof(p));
 }
 
+static void hold(void) {
+    keyrecord_t r = {{true}};
+    last_input = sim_now; process_record_user(ENC_CLICK, &r);
+    tick(HOLD_MS + 50);
+    r.event.pressed = false; process_record_user(ENC_CLICK, &r);
+    tick(20);
+}
+
 static void turn(bool cw) { last_input = sim_now; encoder_update_user(0, cw); tick(20); }
 static void click(void) {
     keyrecord_t r = {{true}};
@@ -84,17 +96,26 @@ int main(int argc, char **argv) {
     keyboard_post_init_user();
     char name[64];
 
-    // Boot with no host app: loading, then the knob's own settings.
+    // Boot with no host app: loading, then the screensaver as home, where
+    // turning and holding are media keys and a click opens the settings.
     tick(1000); dump("loading_1s");
     tick(2600); dump("loading_3s");
-    tick(2000); dump("nohost_settings");
+    tick(2000); dump("nohost_home");
+    printf("expect vol+ vol- mute:\n");
+    turn(true); turn(false); hold();
+    tick(200); dump("nohost_home_after_keys"); // still the screensaver
+    click(); dump("nohost_settings");
     turn(true); dump("nohost_cursor");          // on Screensaver
     click(); dump("nohost_editing");            // editing it
-    turn(true); dump("nohost_changed");         // drive -> stars
-    click(); turn(true); turn(true); turn(true); // leave, down to Show screensaver
-    dump("nohost_scrolled");
+    turn(false); dump("nohost_changed");        // drive -> none
+    click(); turn(true); turn(true); turn(true); // leave, down to Exit
+    dump("nohost_exit_row");
     turn(false); turn(false); turn(false); turn(false); click(); turn(false); click(); // theme back one: neon -> winamp
     dump("nohost_theme");
+    hold(); dump("nohost_home_none");           // held: home, no screensaver
+    click(); turn(true); click(); turn(true); click(); // screensaver none -> drive
+    turn(true); turn(true); turn(true); click(); // Exit
+    tick(300); dump("nohost_home_drive");
     for (uint8_t th = 0; th < THEME_COUNT; th++) {
         uint8_t p[RAW_EPSIZE] = {THEME_CMD, th};
         raw_hid_receive(p, sizeof(p));

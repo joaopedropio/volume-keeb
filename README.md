@@ -179,7 +179,7 @@ Use the [3D view](https://joaopedropio.github.io/volume-keeb/) to see where each
 
 Before anything is screwed down, plug the board in:
 
-1. The screen lights up with *waiting for the computer*, then, since there's no host app yet, its own settings (**NO APP ON THIS COMPUTER**). Turning and clicking should move through them.
+1. The screen lights up with *waiting for the computer*, then, since there's no host app yet, the screensaver. Turning it changes the computer's volume; a click opens the knob's settings (**NO APP ON THIS COMPUTER**), where turning and clicking should move through them.
 2. Do [Step 7](#step-7-set-up-the-computer-) on your computer now. `Master` and any app playing sound appear on the screen.
 3. Turning the knob moves the selection; clicking opens the app; turning changes its volume on the computer.
 
@@ -266,17 +266,24 @@ Long app names scroll.
 
 ### Without the host app
 
-If the host app doesn't answer within 5 s of plugging in, or stops (the computer sleeps, the app is closed), the knob shows its own settings, headed **NO APP ON THIS COMPUTER**:
+If the host app doesn't answer within 5 s of plugging in, or stops (the computer sleeps, the app is closed), the knob works as a plain volume knob, through the media keys every computer understands, no app needed:
+
+| Action | Screensaver (home) | Settings |
+|---|---|---|
+| Turn | System volume up/down | Move the selection, or change the value being edited |
+| Click | Open the settings | Edit the selected row (arrows appear around its value); click again when done. **Exit** goes back |
+| Click and hold | Mute / unmute | Back to the screensaver |
+
+The screensaver is the home screen (with **none** picked, a screen with the name and these hints instead). The settings, headed **NO APP ON THIS COMPUTER**:
 
 | Setting | Choices |
 |---|---|
 | Theme | The four presets |
 | Screensaver | none, drive, stars, rain, plasma, bounce |
-| Start after | 15 s to 1 h |
+| Start after | 15 s to 1 h (also how long the settings stay open untouched) |
 | Screen off | never, 1 min to 4 h |
-| Show screensaver | Click to see it |
 
-Turn to pick a row, click to change it (arrows appear around the value), turn to choose, click again when done. The knob keeps these settings, and the last ones the host app sent, across unplugging, so the screensaver and the screen-off timer behave the same on a computer without the app. When the host app connects, it sends the settings from its page, which win. The knob goes back to the menu as soon as it does.
+The knob keeps these settings, and the last ones the host app sent, across unplugging. When the host app connects, it sends the settings from its page, which win, and the knob goes back to the app menu.
 
 ## Themes [🔼](#contents)
 

@@ -43,3 +43,8 @@ static inline void reset_keyboard(void) {}
 bool     eeconfig_is_user_datablock_valid(void);
 uint32_t eeconfig_read_user_datablock(void *data, uint32_t offset, uint32_t length);
 uint32_t eeconfig_update_user_datablock(const void *data, uint32_t offset, uint32_t length);
+// Media keys, as the knob sends them without a host app (sim.c logs them).
+#define KC_AUDIO_MUTE 0x00A8
+#define KC_AUDIO_VOL_UP 0x00A9
+#define KC_AUDIO_VOL_DOWN 0x00AA
+void tap_code(uint8_t code);

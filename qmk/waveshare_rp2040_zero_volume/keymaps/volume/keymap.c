@@ -187,9 +187,10 @@ static bool    receiving_apps;
 static bool     host_seen;
 static uint32_t host_last_seen;
 
-// LOADING waits for the host app after boot; SETTINGS replaces the menu
-// while there's no host app (see render_settings_screen()).
-typedef enum { SCREEN_LOADING, SCREEN_MENU, SCREEN_APP, SCREEN_SETTINGS } screen_t;
+// LOADING waits for the host app after boot. Without a host app the knob
+// is a plain volume knob: HOME (the screensaver, see goto_home()) and
+// SETTINGS (see render_settings_screen()) take the menu's place.
+typedef enum { SCREEN_LOADING, SCREEN_MENU, SCREEN_APP, SCREEN_HOME, SCREEN_SETTINGS } screen_t;
 static screen_t screen      = SCREEN_LOADING;
 static uint32_t boot_at;
 static uint8_t  menu_cursor = 0;
@@ -235,6 +236,7 @@ static uint32_t woke_at;              // the host waking up counts as activity t
 static void     start_saver(void);
 static void     stop_saver(void);
 static bool     wake_ui(void);
+static void     restore_ui(void);
 static void     set_theme(const theme_t *next);
 static void     save_settings(void);
 
@@ -689,14 +691,20 @@ static void render_loading_screen(void) {
 }
 
 // ---------------------------------------------------------------------
-// Settings: what the menu becomes while there's no host app. A header says
-// so, and a list of what the knob can change on its own: the theme (the
-// presets), the screensaver, its idle time and the screen-off time, plus an
-// item that shows the screensaver. Click a row to edit it (its value gets
-// arrows and turning changes it, live), click again to leave it. Changes go
-// to EEPROM at once; a host app that connects later sends its own settings.
+// Without a host app the knob works on its own:
+//   HOME      the screensaver runs as the home screen (or, with none picked,
+//             a screen of hints). Turning sends the volume media keys,
+//             holding sends mute, a click opens SETTINGS.
+//   SETTINGS  a header saying there's no app, and a list of what the knob
+//             can change by itself: the theme (the presets), the
+//             screensaver, its idle time and the screen-off time, and Exit.
+//             Click a row to edit it (its value gets arrows and turning
+//             changes it, live), click again to leave it. Exit, holding the
+//             knob or leaving it alone for saver_after_ms goes back HOME.
+// Changes go to EEPROM at once; a host app that connects later sends its
+// own settings and brings back the menu.
 // ---------------------------------------------------------------------
-enum { SET_THEME, SET_SAVER, SET_SAVER_AFTER, SET_OFF_AFTER, SET_PREVIEW, SET_COUNT };
+enum { SET_THEME, SET_SAVER, SET_SAVER_AFTER, SET_OFF_AFTER, SET_EXIT, SET_COUNT };
 #define SETTINGS_ROWS 3
 #define SETTINGS_TOP (LCD_HEIGHT - SETTINGS_ROWS * LIST_ROW_H)
 static uint8_t settings_cursor;
@@ -704,7 +712,7 @@ static bool    settings_editing;
 
 static const char *const theme_names[THEME_COUNT] = {"terminal", "neobrutal", "winamp", "neon"};
 static const char *const saver_names[SAVER_COUNT] = {"none", "drive", "stars", "rain", "plasma", "bounce"};
-static const char *const settings_labels[SET_COUNT] = {"Theme", "Screensaver", "Start after", "Screen off", "Show screensaver"};
+static const char *const settings_labels[SET_COUNT] = {"Theme", "Screensaver", "Start after", "Screen off", "Exit"};
 // The choices offered on the knob, in seconds (the settings page has the same).
 static const uint16_t saver_after_steps[] = {15, 30, 60, 120, 300, 600, 900, 1800, 3600};
 static const uint16_t off_after_steps[]   = {0, 60, 300, 600, 900, 1800, 3600, 7200, 14400};
@@ -745,7 +753,7 @@ static void render_settings_screen(void) {
     lcd_clear_region(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
     uint16_t hy = (SETTINGS_TOP - UI_CHAR_H) / 2;
     qp_drawtext_recolor(lcd, ROW_TEXT_X, hy, font_ui, "NO APP ON THIS COMPUTER", CT(mute), CT(bg));
-    const char *hint = settings_editing ? "turn to change, click when done" : "click to change";
+    const char *hint = settings_editing ? "turn to change, click when done" : "click: change   hold: exit";
     qp_drawtext_recolor(lcd, ROW_X1 - LIST_PAD - qp_textwidth(font_ui, hint), hy, font_ui, hint, CT(dim), CT(bg));
 
     uint8_t start = 0;
@@ -811,13 +819,27 @@ static void settings_turn(bool clockwise) {
     dirty_menu = true;
 }
 
+static void goto_home(void);
+
 static void settings_click(void) {
-    if (settings_cursor == SET_PREVIEW) {
-        if (saver_kind != SAVER_NONE) start_saver();
+    if (settings_cursor == SET_EXIT) {
+        goto_home();
         return;
     }
     settings_editing = !settings_editing;
     dirty_menu       = true;
+}
+
+// HOME with no screensaver picked: the name and what the knob does.
+static void render_home_screen(void) {
+    const theme_t *t = &theme;
+    lcd_clear_region(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
+    const char *name = "volume-keeb";
+    qp_drawtext_recolor(lcd, (LCD_WIDTH - qp_textwidth(font_big, name)) / 2, 26, font_big, name, CT(fg), CT(bg));
+    const char *head = "NO APP ON THIS COMPUTER";
+    qp_drawtext_recolor(lcd, (LCD_WIDTH - qp_textwidth(font_ui, head)) / 2, 72, font_ui, head, CT(mute), CT(bg));
+    const char *hint = "turn: volume   hold: mute   click: settings";
+    qp_drawtext_recolor(lcd, (LCD_WIDTH - qp_textwidth(font_ui, hint)) / 2, 100, font_ui, hint, CT(dim), CT(bg));
 }
 
 // Every screen but the App screen redraws whole, on dirty_menu.
@@ -825,6 +847,7 @@ static void render_list_screen(void) {
     switch (screen) {
         case SCREEN_LOADING: render_loading_screen(); break;
         case SCREEN_SETTINGS: render_settings_screen(); break;
+        case SCREEN_HOME: render_home_screen(); break;
         default: render_menu_screen(); break;
     }
 }
@@ -834,6 +857,26 @@ static void goto_settings(void) {
     settings_cursor  = 0;
     settings_editing = false;
     need_full_redraw = true;
+}
+
+static void goto_home(void) {
+    screen           = SCREEN_HOME;
+    settings_editing = false;
+    if (saver_kind != SAVER_NONE) {
+        start_saver();
+    } else {
+        stop_saver();
+        need_full_redraw = true;
+    }
+}
+
+// A dark screen comes back on HOME, without swallowing the touch.
+static void home_light_up(void) {
+    if (!idle_off) return;
+    idle_off = false;
+    LCD_BLK_ON();
+    restore_ui();
+    goto_home();
 }
 
 static void goto_menu(void) {
@@ -872,6 +915,11 @@ static void handle_app_hold(void) {
 }
 
 bool encoder_update_user(uint8_t index, bool clockwise) {
+    if (screen == SCREEN_HOME) {
+        home_light_up();
+        tap_code(clockwise ? KC_AUDIO_VOL_UP : KC_AUDIO_VOL_DOWN);
+        return false;
+    }
     if (wake_ui()) return false;
     if (screen == SCREEN_LOADING) return false;
     if (screen == SCREEN_SETTINGS) {
@@ -903,6 +951,23 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     if (keycode != ENC_CLICK) return true;
 
+    // HOME and SETTINGS tell a click from a hold (HOLD_MS, fired from
+    // housekeeping_task_user()) on their own.
+    if (screen == SCREEN_HOME) {
+        if (record->event.pressed) {
+            click_down        = true;
+            click_hold_fired  = false;
+            click_press_start = timer_read32();
+        } else {
+            click_down = false;
+            if (!click_hold_fired) {
+                wake_ui();
+                goto_settings();
+            }
+        }
+        return false;
+    }
+
     if (record->event.pressed && wake_ui()) {
         wake_swallow_release = true;
         return false;
@@ -914,7 +979,14 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
 
     if (screen == SCREEN_LOADING) return false;
     if (screen == SCREEN_SETTINGS) {
-        if (!record->event.pressed) settings_click();
+        if (record->event.pressed) {
+            click_down        = true;
+            click_hold_fired  = false;
+            click_press_start = timer_read32();
+        } else {
+            click_down = false;
+            if (!click_hold_fired) settings_click();
+        }
         return false;
     }
     if (screen == SCREEN_MENU) {
@@ -971,7 +1043,7 @@ static void apply_app_snapshot(void) {
     }
     host_seen      = true;
     host_last_seen = timer_read32();
-    if (screen == SCREEN_LOADING || screen == SCREEN_SETTINGS) goto_menu();
+    if (screen == SCREEN_LOADING || screen == SCREEN_HOME || screen == SCREEN_SETTINGS) goto_menu();
     if (changed) {
         dirty_menu         = true;
         dirty_header         = true;
@@ -1937,9 +2009,18 @@ void housekeeping_task_user(void) {
         app_count  = 0;
         active_app = 0;
         menu_cursor = 0;
-        goto_settings();
+        goto_home();
     }
-    if (screen == SCREEN_LOADING && timer_elapsed32(boot_at) > HOST_WAIT_MS) goto_settings();
+    if (screen == SCREEN_LOADING && timer_elapsed32(boot_at) > HOST_WAIT_MS) goto_home();
+
+    if ((screen == SCREEN_HOME || screen == SCREEN_SETTINGS) && click_down && !click_hold_fired && timer_elapsed32(click_press_start) >= HOLD_MS) {
+        click_hold_fired = true;
+        if (screen == SCREEN_HOME) {
+            tap_code(KC_AUDIO_MUTE);
+        } else {
+            goto_home();
+        }
+    }
 
     if (screen == SCREEN_APP) {
         if (click_down && !click_hold_fired && timer_elapsed32(click_press_start) >= HOLD_MS) {
@@ -1958,10 +2039,13 @@ void housekeeping_task_user(void) {
     if (off_after_ms && idle > off_after_ms) {
         saver_on = false;
         idle_off = true;
+        if (screen == SCREEN_SETTINGS) screen = SCREEN_HOME; // so waking it acts as HOME
         blank_panel();
         return;
     }
-    if (!saver_on && saver_kind != SAVER_NONE && idle > saver_after_ms) {
+    if (screen == SCREEN_SETTINGS && idle > saver_after_ms) {
+        goto_home();
+    } else if (!saver_on && saver_kind != SAVER_NONE && idle > saver_after_ms) {
         start_saver();
     }
     if (saver_on) {
