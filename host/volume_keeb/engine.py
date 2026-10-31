@@ -16,8 +16,9 @@ import zlib
 from .knob import Knob
 from .protocol import (
     CTRL_CMD, FONT_CLEAR_CMD, FONT_END_CMD, FONT_INFO_CMD, FONT_QUERY_CMD, FONT_SLOTS, FONT_STATUS,
-    FONT_STATUS_CMD, HEARTBEAT_S, THEME_IDS, THEME_CMD, VERSION_INFO_CMD, VERSION_QUERY_CMD, app_packets, font_begin_packet, font_data_packets,
-    palette_packet, parse_font_info, screen_packet,
+    FONT_STATUS_CMD, HEARTBEAT_S, PRESETS, SETTINGS_INFO_CMD, SETTINGS_QUERY_CMD, THEME_IDS, THEME_CMD, VERSION_INFO_CMD,
+    VERSION_QUERY_CMD, app_packets, font_begin_packet, font_data_packets, palette_packet, parse_font_info, parse_settings_info,
+    screen_packet,
 )
 
 
@@ -64,7 +65,7 @@ class Engine:
             if report[0] == CTRL_CMD and len(report) >= 4:
                 self.actions.put((report[1], report[2], report[3]))
                 self.wake()
-            elif report[0] in (FONT_STATUS_CMD, FONT_INFO_CMD, VERSION_INFO_CMD):
+            elif report[0] in (FONT_STATUS_CMD, FONT_INFO_CMD, VERSION_INFO_CMD, SETTINGS_INFO_CMD):
                 self.replies.put(report)
 
     def _sync_loop(self):
@@ -76,6 +77,7 @@ class Engine:
             self.wake_event.clear()
             if self.need_setup:
                 self.need_setup = False
+                self.adopt_knob_settings()
                 self.push_theme()
                 self.push_screen()
                 self.query_version()
@@ -104,6 +106,28 @@ class Engine:
             last_packets, last_sent = packets, time.monotonic()
 
     # -- the look ------------------------------------------------------
+
+    def adopt_knob_settings(self):
+        """Takes what was changed on the knob's own settings screen (while
+        no host app was around) as this app's settings, so pushing them
+        right after doesn't undo it. Firmware before v0.4.0 doesn't answer."""
+        with self.font_lock:  # shares self.replies with the font commands
+            self._drain_replies()
+            if not self.knob.write(bytes([SETTINGS_QUERY_CMD])):
+                return
+            report = self._wait_reply(SETTINGS_INFO_CMD, timeout=1.0)
+        info = report and parse_settings_info(report)
+        if not info or not info[0]:
+            return
+        _, colors, decor, screen = info
+        preset = next((name for name, p in PRESETS.items() if p["colors"] == colors and p["decor"] == decor), "")
+        try:
+            self.config.set_theme(colors, decor, preset)
+            self.config.set_screen(screen)
+        except ValueError as e:
+            print(f"the knob's settings were unusable: {e}", file=sys.stderr)
+            return
+        print("took the settings changed on the knob", file=sys.stderr)
 
     def push_theme(self):
         d = self.config.data

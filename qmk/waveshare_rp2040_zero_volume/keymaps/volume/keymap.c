@@ -59,6 +59,9 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 //                    = 1 to start the screensaver right away (a preview).
 //   Host -> device, asked on every (re)connect:
 //     VERSION_QUERY_CMD replies VERSION_INFO_CMD.
+//     SETTINGS_QUERY_CMD replies SETTINGS_INFO_CMD, before the host sends
+//                    its look and screen settings: changes made on the knob
+//                    win over the host's.
 //   Host -> device, from `volume_sync.py --bootloader` (flash.sh):
 //     BOOTLOADER_CMD reboots into the RP2040's BOOTSEL bootloader, so the
 //                    board can be re-flashed without pressing BOOT/RESET.
@@ -72,6 +75,11 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 //   Device -> host, the reply to VERSION_QUERY_CMD:
 //     VERSION_INFO_CMD data[1..3] = major, minor, patch (the repo's VERSION
 //                    at build time). The v0.1.0 release's firmware doesn't answer.
+//   Device -> host, the reply to SETTINGS_QUERY_CMD (v0.4.0 on):
+//     SETTINGS_INFO_CMD data[1] = 1 if changed on the knob's settings screen
+//                    since a host last sent its own, data[2..19] = palette and
+//                    data[20] = decor (PALETTE_CMD's layout), data[21] =
+//                    saver_t, data[22..25] = SCREEN_CMD's two times.
 #define APP_BEGIN_CMD 0x60
 #define APP_ENTRY_CMD 0x61
 #define APP_END_CMD 0x62
@@ -86,10 +94,12 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 #define FONT_QUERY_CMD 0x6A
 #define SCREEN_CMD 0x6B
 #define VERSION_QUERY_CMD 0x6C
+#define SETTINGS_QUERY_CMD 0x6D
 #define CTRL_CMD 0x70
 #define FONT_STATUS_CMD 0x71
 #define FONT_INFO_CMD 0x72
 #define VERSION_INFO_CMD 0x73
+#define SETTINGS_INFO_CMD 0x74
 
 // Set from the repo's VERSION by rules.mk.
 #ifndef FW_VERSION_MAJOR
@@ -239,6 +249,7 @@ static bool     wake_ui(void);
 static void     restore_ui(void);
 static void     set_theme(const theme_t *next);
 static void     save_settings(void);
+static bool     changed_here; // settings changed on the knob that no host has seen yet
 
 // Everything is drawn into `lcd`, a full-screen RGB565 framebuffer, and only
 // the rectangle of pixels that actually changed is sent to `panel` (see
@@ -701,8 +712,9 @@ static void render_loading_screen(void) {
 //             Click a row to edit it (its value gets arrows and turning
 //             changes it, live), click again to leave it. Exit, holding the
 //             knob or leaving it alone for saver_after_ms goes back HOME.
-// Changes go to EEPROM at once; a host app that connects later sends its
-// own settings and brings back the menu.
+// Changes go to EEPROM at once and are marked changed_here: a host app
+// that connects later asks for them (SETTINGS_QUERY_CMD) and takes them
+// instead of sending its own, then brings back the menu.
 // ---------------------------------------------------------------------
 enum { SET_THEME, SET_SAVER, SET_SAVER_AFTER, SET_OFF_AFTER, SET_EXIT, SET_COUNT };
 #define SETTINGS_ROWS 3
@@ -790,6 +802,7 @@ static uint16_t step_choice(const uint16_t *steps, uint8_t n, uint32_t cur, bool
 }
 
 static void settings_change(bool up) {
+    changed_here = true;
     switch (settings_cursor) {
         case SET_THEME: {
             int8_t i = theme_index();
@@ -1065,6 +1078,7 @@ static void set_theme(const theme_t *next) {
 typedef struct {
     theme_t  theme;
     uint8_t  saver_kind;
+    uint8_t  changed_here; // in what was padding, so 0 in older saves
     uint16_t saver_after_s, off_after_s;
 } settings_t;
 _Static_assert(sizeof(settings_t) <= EECONFIG_USER_DATA_SIZE, "settings_t outgrew EECONFIG_USER_DATA_SIZE");
@@ -1074,6 +1088,7 @@ static void save_settings(void) {
     memset(&s, 0, sizeof(s)); // the padding goes to EEPROM too
     s.theme         = theme;
     s.saver_kind    = saver_kind;
+    s.changed_here  = changed_here;
     s.saver_after_s = saver_after_ms / 1000;
     s.off_after_s   = off_after_ms / 1000;
     eeconfig_update_user_datablock(&s, 0, sizeof(s)); // only writes what changed
@@ -1086,6 +1101,7 @@ static void load_settings(void) {
     if (s.theme.decor >= DECOR_COUNT || s.saver_kind >= SAVER_COUNT || !s.saver_after_s) return;
     theme          = s.theme;
     saver_kind     = s.saver_kind;
+    changed_here   = s.changed_here;
     saver_after_ms = s.saver_after_s * 1000UL;
     off_after_ms   = s.off_after_s * 1000UL;
 }
@@ -1174,6 +1190,14 @@ static void handle_font_cmd(uint8_t *data, uint8_t length) {
     }
 }
 
+// The host sent its own look or screen settings: from now on they're the
+// ones in step with it.
+static void host_settings_arrived(void) {
+    if (!changed_here) return;
+    changed_here = false;
+    save_settings();
+}
+
 void raw_hid_receive(uint8_t *data, uint8_t length) {
     if (length < 1) return;
     switch (data[0]) {
@@ -1188,6 +1212,7 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
         }
         case PALETTE_CMD: {
             if (length < 20 || data[19] >= DECOR_COUNT) return;
+            host_settings_arrived();
             theme_t next;
             memset(&next, 0, sizeof(next)); // set_theme() compares the padding too
             memcpy(&next, &data[1], 18); // theme_t opens with the six H,S,V triples
@@ -1246,8 +1271,22 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
             raw_hid_send(reply, sizeof(reply));
             break;
         }
+        case SETTINGS_QUERY_CMD: {
+            uint8_t reply[RAW_EPSIZE] = {SETTINGS_INFO_CMD, changed_here};
+            memcpy(&reply[2], &theme, 18); // the six H,S,V triples
+            reply[20]          = theme.decor;
+            reply[21]          = saver_kind;
+            uint16_t after_s   = saver_after_ms / 1000, off_s = off_after_ms / 1000;
+            reply[22]          = after_s & 0xFF;
+            reply[23]          = after_s >> 8;
+            reply[24]          = off_s & 0xFF;
+            reply[25]          = off_s >> 8;
+            raw_hid_send(reply, sizeof(reply));
+            break;
+        }
         case SCREEN_CMD: {
             if (length < 7 || data[1] >= SAVER_COUNT) return;
+            host_settings_arrived();
             // A running screensaver of another kind stops; if the knob is
             // still idle, the new one takes over on the next housekeeping pass.
             if (saver_on && data[1] != saver_kind) stop_saver();
@@ -1267,6 +1306,7 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
             if (length < 2) return;
             uint8_t id = data[1];
             if (id >= THEME_COUNT) return;
+            host_settings_arrived();
             set_theme(&themes[id]);
             break;
         }

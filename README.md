@@ -283,7 +283,7 @@ The screensaver is the home screen (with **none** picked, a screen with the name
 | Start after | 15 s to 1 h (also how long the settings stay open untouched) |
 | Screen off | never, 1 min to 4 h |
 
-The knob keeps these settings, and the last ones the host app sent, across unplugging. When the host app connects, it sends the settings from its page, which win, and the knob goes back to the app menu.
+The knob keeps these settings, and the last ones the host app sent, across unplugging. When the host app connects, settings you changed on the knob win: the app takes them onto its settings page. Otherwise it sends the page's. Either way the knob goes back to the app menu.
 
 ## Themes [🔼](#contents)
 

@@ -24,10 +24,12 @@ FONT_CLEAR_CMD = 0x69
 FONT_QUERY_CMD = 0x6A
 SCREEN_CMD = 0x6B
 VERSION_QUERY_CMD = 0x6C
+SETTINGS_QUERY_CMD = 0x6D
 CTRL_CMD = 0x70
 FONT_STATUS_CMD = 0x71
 FONT_INFO_CMD = 0x72
 VERSION_INFO_CMD = 0x73
+SETTINGS_INFO_CMD = 0x74
 
 ACTION_SET_VOLUME = 0
 ACTION_TOGGLE_MUTE = 1
@@ -122,6 +124,17 @@ def font_data_packets(slot, data):
     for offset in range(0, len(data), FONT_DATA_CHUNK):
         chunk = data[offset : offset + FONT_DATA_CHUNK]
         yield bytes([FONT_DATA_CMD, slot]) + offset.to_bytes(3, "little") + bytes([len(chunk)]) + chunk
+
+
+def parse_settings_info(report):
+    """SETTINGS_INFO_CMD -> (changed on the knob?, colors, decor, screen),
+    or None if it holds something this app doesn't know."""
+    if report[20] >= len(DECORS) or report[21] >= len(SAVERS):
+        return None
+    colors = {f: list(report[2 + 3 * i : 5 + 3 * i]) for i, f in enumerate(COLOR_FIELDS)}
+    saver_after, off_after = struct.unpack_from("<HH", report, 22)
+    screen = {"saver": SAVERS[report[21]], "saver_after": saver_after, "off_after": off_after}
+    return bool(report[1]), colors, DECORS[report[20]], screen
 
 
 def parse_font_info(report):
