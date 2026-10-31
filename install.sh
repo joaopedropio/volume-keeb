@@ -34,9 +34,9 @@ if command -v apt-get >/dev/null; then
     sudo apt-get install -y python3 python3-pil python3-gi pulseaudio-utils gir1.2-ayatanaappindicator3-0.1
     sudo apt-get install -y python3-pystray 2>/dev/null || true
 elif command -v pacman >/dev/null; then
-    sudo pacman -S --needed --noconfirm python python-pillow python-gobject libpulse libayatana-appindicator
+    sudo pacman -S --needed --noconfirm python python-pillow python-gobject python-pystray libpulse libayatana-appindicator
 elif command -v dnf >/dev/null; then
-    sudo dnf install -y python3 python3-pillow python3-gobject pulseaudio-utils libayatana-appindicator-gtk3
+    sudo dnf install -y python3 python3-pillow python3-gobject python3-pystray gobject-introspection pulseaudio-utils libayatana-appindicator-gtk3
 else
     echo "Unknown package manager: install Python 3, Pillow, PyGObject, pactl and libayatana-appindicator yourself."
 fi
