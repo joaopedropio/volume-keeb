@@ -217,7 +217,7 @@ It asks for your password once, then:
 3. starts the app now and at every login (a systemd user service, `volume-sync`);
 4. adds **volume-keeb settings** to your app menu, and opens the settings page.
 
-Plug the knob in (or replug it) and your apps show up on the screen. The knob icon in the tray and the app menu entry both open the settings page; so does <http://localhost:8137/>.
+Plug the knob in (or replug it) and your apps show up on the screen. The knob icon in the tray (its screen green while the knob is connected, red while it isn't) and the app menu entry both open the settings page; so does <http://localhost:8137/>.
 
 The tray icon needs a desktop with a system tray: GNOME needs the AppIndicator extension, sway needs waybar's `tray` module. Without one, everything else works the same.
 

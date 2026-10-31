@@ -89,6 +89,14 @@ class Knob:
         self.dev = None
         self.path = None
         self.lock = threading.Lock()
+        self.on_change = None  # called with True/False when it's plugged in or unplugged, e.g. to change the tray icon
+
+    def _changed(self):
+        if self.on_change:
+            try:
+                self.on_change(self.dev is not None)
+            except Exception as e:
+                print(f"knob on_change failed: {e}", file=sys.stderr)
 
     @property
     def connected(self):
@@ -109,6 +117,7 @@ class Knob:
                 return False
             self.path = path
             print(f"connected to {path!r}", file=sys.stderr)
+            self._changed()
             return True
 
     def _drop(self):
@@ -119,6 +128,7 @@ class Knob:
                 pass
             self.dev = None
             print("knob disconnected", file=sys.stderr)
+            self._changed()
 
     def write(self, report):
         """Sends one report; False if the knob isn't there."""

@@ -185,7 +185,7 @@ The settings page can replace each of the three fonts. The host converts the fon
 | `web.py`, `web/index.html` | The settings page and its JSON API, on `127.0.0.1:8137` |
 | `qff.py` | TTF/OTF → QFF, and the page's font previews |
 | `config.py` | `config.json` and the fonts, in `~/.config/volume-keeb` or `%APPDATA%\volume-keeb` |
-| `tray.py`, `autostart.py` | The tray icon (pystray) and Windows' "Start with Windows" (the HKCU `Run` key) |
+| `tray.py`, `autostart.py` | The tray icon (pystray; the drawn knob's screen is green while it's connected, red while not, through `Knob.on_change`) and Windows' "Start with Windows" (the HKCU `Run` key) |
 | `updates.py`, `version.py` | Checks GitHub's latest release every 6 h; puts its `.uf2` on the knob (`BOOTLOADER_CMD`, wait for the `RPI-RP2` drive, copy, wait for the knob to reconnect). The app's own version is the repo's `VERSION` |
 
 - **Linux**: apps come from `pactl list sink-inputs` (one per playing stream), plus a synthetic `Master` for the default sink. It wakes on every `pactl subscribe` event about sinks/server.

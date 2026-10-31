@@ -96,7 +96,7 @@ def main(argv=None):
         from . import autostart
     if not args.no_tray:
         restart_when_session_appears()
-    if args.no_tray or not tray.run(server.url, autostart, updates):
+    if args.no_tray or not tray.run(server.url, autostart, updates, engine.knob):
         try:
             threading.Event().wait()
         except KeyboardInterrupt:
