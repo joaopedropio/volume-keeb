@@ -32,7 +32,7 @@ This README is a step-by-step guide to building your own. If you want to change 
 - **Per-app volume**: every app that is playing sound gets its own entry, plus `Master` for the system's default output.
 - **Media info**: the title of what's playing (from MPRIS on Linux, the media overlay's sessions on Windows: Spotify, browsers, most media players) shown large on the screen.
 - **Play/pause and mute** from the knob.
-- **Themes, colors and fonts from a settings page**: four preset themes, `neon` (synthwave), `terminal` (green phosphor), `neobrutal` (cream, black and orange, hard shadows) and `winamp` (the classic Winamp skin), any color you like on top, and your own TrueType/OpenType fonts. The page runs on your computer and opens from a tray icon, like Jellyfin's.
+- **Themes, colors and fonts from a settings page**: seven preset themes, `neon` (synthwave), `terminal` (green phosphor), `neobrutal` (cream, black and orange, hard shadows), `winamp` (the classic Winamp skin), `studio` (a volume dial), `hifi` (an analog VU meter) and `console` (a mixing desk), any color you like on top, and your own TrueType/OpenType fonts. The page runs on your computer and opens from a tray icon, like Jellyfin's.
 - **Screensavers**: after a while without touching the knob (30 s by default), the screen plays one of five animations: a synthwave drive (a car on a road through a striped sea, palm trees going by, a neon city under the stars), a flight through the stars, Matrix-style rain, a plasma in your theme's colors, or what's playing bouncing around. You can turn the screensaver off, and have the screen go dark after a set time. Turning or pressing the knob brings the UI back; that first touch does nothing else. The screen also goes dark while the computer is suspended.
 - **Wakes the computer** from suspend.
 - **Linux and Windows.**
@@ -293,6 +293,9 @@ The knob keeps these settings, and the last ones the host app sent, across unplu
 | `terminal` | Flat green-phosphor terminal. |
 | `neobrutal` | Cream, black and orange, thick borders and hard drop shadows, after [this Figma concept](https://www.figma.com/make/t8KsdhbALpn6rPHxM7KQUm/Volume-Controller-UI). |
 | `winamp` | Grey-blue chassis with sunken black "LCD" wells, green text and an amber accent, after the classic Winamp skin. Menu items look like toolbar buttons that press in when selected. |
+| `studio` | Dark slate and amber, with its own layout: the volume as a ring of dots around a knob face with the number in the middle, the title, play state and controls next to it. The menu is rounded rows with each app's volume. |
+| `hifi` | An old hi-fi deck: walnut and cream, with the volume on an analog VU meter (a needle over a lit face, red from 80) next to the same panel as `studio`. The selected row lights up like the meter's face. |
+| `console` | A mixing desk: charcoal and lime, with the volume on a fader next to a column of green/yellow/red LEDs and the same panel as `studio`. |
 
 Pick one on the [settings page](#settings-page-), or from a terminal with `volume_sync.py --theme winamp` (saved like a pick on the page).
 

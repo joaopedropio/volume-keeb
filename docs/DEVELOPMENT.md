@@ -244,6 +244,8 @@ It lands in `host\dist\volume-keeb.exe`. To run from source instead: `pip instal
 2. Add it to `PRESETS` and `THEME_IDS` in `host/volume_keeb/protocol.py`.
 3. Rebuild and reflash; it shows up on the settings page.
 
+A new decor (`decor_t`) needs more: its branches in `keymap.c`'s drawing (`draw_box()` at least), its name in `DECORS` in `protocol.py`, and the same drawing in `web/index.html`'s preview (`box()`, `drawApp()`, `drawMenu()`) and `DECOR_LABEL`. `DECOR_DIAL` (`studio`), `DECOR_VU` (`hifi`) and `DECOR_MIXER` (`console`) change the App screen's layout (`side_layout()`): the volume on the left (`draw_dial()`, `draw_vu()`, `draw_fader()`, from `draw_bar()`), and a panel with the rest on the right (`draw_panel()`, from `draw_header()`), its title row placed by `ticker_x()`/`ticker_y()`/`ticker_w()`.
+
 The firmware doesn't store the look; the host sends it on start, on every reconnect and on every change on the page. Fonts are the exception: they live in the knob's flash, and the host only re-sends one whose CRC differs from what it has saved.
 
 ## Case

@@ -42,7 +42,7 @@ HEARTBEAT_S = 2  # firmware shows "no host" after 5 s without a packet
 
 # Palette fields in theme_t's order, and decor_t's values.
 COLOR_FIELDS = ("bg", "well", "fg", "dim", "accent", "mute")
-DECORS = ("flat", "boxed", "bevel", "neon")
+DECORS = ("flat", "boxed", "bevel", "neon", "dial", "vu", "mixer")
 
 # saver_t's values, in order.
 SAVERS = ("none", "drive", "stars", "rain", "plasma", "bounce")
@@ -70,8 +70,23 @@ PRESETS = {
         "colors": {"bg": [190, 235, 22], "well": [190, 235, 22], "fg": [128, 200, 255],
                    "dim": [190, 120, 150], "accent": [222, 210, 255], "mute": [10, 230, 255]},
     },
+    "studio": {
+        "decor": "dial",
+        "colors": {"bg": [165, 70, 24], "well": [165, 55, 44], "fg": [28, 25, 245],
+                   "dim": [160, 45, 135], "accent": [18, 235, 255], "mute": [0, 200, 240]},
+    },
+    "hifi": {
+        "decor": "vu",
+        "colors": {"bg": [12, 150, 38], "well": [30, 95, 232], "fg": [30, 55, 228],
+                   "dim": [22, 110, 150], "accent": [0, 215, 210], "mute": [8, 230, 255]},
+    },
+    "console": {
+        "decor": "mixer",
+        "colors": {"bg": [160, 25, 28], "well": [160, 20, 50], "fg": [0, 0, 225],
+                   "dim": [160, 20, 125], "accent": [70, 210, 235], "mute": [0, 220, 240]},
+    },
 }
-THEME_IDS = {"terminal": 0, "neobrutal": 1, "winamp": 2, "neon": 3}  # index into themes[]
+THEME_IDS = {"terminal": 0, "neobrutal": 1, "winamp": 2, "neon": 3, "studio": 4, "hifi": 5, "console": 6}  # index into themes[]
 
 # font_store.h's slots: the keymap's font each one replaces, and the line
 # height (px) the layout was built around.

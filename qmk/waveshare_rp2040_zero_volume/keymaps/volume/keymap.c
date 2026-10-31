@@ -142,11 +142,21 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 //   DECOR_BEVEL  Winamp-style: raised/sunken 1px bevel edges, with `well`
 //                as the sunken "LCD readout" background (distinct from
 //                `bg`, the chassis color chips/space sit on).
+//   DECOR_DIAL   studio: its own App screen layout -- the volume as a ring
+//                of dots around a knob face on the left, the number in the
+//                middle; the title, play state and hints on the right.
+//                Selected rows are rounded accent pills.
+//   DECOR_VU     hifi: the same panel, next to an analog VU meter -- a
+//                lit `well` face with the scale printed in `bg`, a red
+//                (`accent`) zone at the top and a needle on the volume.
+//                The selected row is the face's color with an accent mark.
+//   DECOR_MIXER  console: the same panel, next to a fader and a column of
+//                green/yellow/red LEDs.
 // `themes[]` are the presets THEME_CMD picks from; the host can also send
 // any palette and decor with PALETTE_CMD. Either way it lands in `theme`,
 // which is all the drawing code looks at.
 // ---------------------------------------------------------------------
-typedef enum { DECOR_FLAT, DECOR_BOXED, DECOR_BEVEL, DECOR_NEON, DECOR_COUNT } decor_t;
+typedef enum { DECOR_FLAT, DECOR_BOXED, DECOR_BEVEL, DECOR_NEON, DECOR_DIAL, DECOR_VU, DECOR_MIXER, DECOR_COUNT } decor_t;
 
 typedef struct {
     uint8_t bg_h, bg_s, bg_v;              // chassis / screen background
@@ -158,7 +168,7 @@ typedef struct {
     decor_t decor;
 } theme_t;
 
-#define THEME_COUNT 4
+#define THEME_COUNT 7
 static const theme_t themes[THEME_COUNT] = {
     // 0: terminal -- flat green phosphor, no decoration
     {HSV_BLACK, HSV_BLACK, HSV_GREEN, HSV_DIMGREEN, HSV_GREEN, HSV_RED, DECOR_FLAT},
@@ -168,6 +178,12 @@ static const theme_t themes[THEME_COUNT] = {
     {170, 41, 88, 85, 85, 15, HSV_GREEN, HSV_DIMGREEN, 31, 211, 255, 1, 188, 232, DECOR_BEVEL},
     // 3: neon -- synthwave: deep violet, cyan text, hot-pink accent, glowing outlines
     {190, 235, 22, 190, 235, 22, 128, 200, 255, 190, 120, 150, 222, 210, 255, 10, 230, 255, DECOR_NEON},
+    // 4: studio -- dark slate, a lighter knob face, warm white text, amber accent, a dial
+    {165, 70, 24, 165, 55, 44, 28, 25, 245, 160, 45, 135, 18, 235, 255, 0, 200, 240, DECOR_DIAL},
+    // 5: hifi -- walnut, a lamp-lit cream meter face, cream text, red zone, a VU meter
+    {12, 150, 38, 30, 95, 232, 30, 55, 228, 22, 110, 150, 0, 215, 210, 8, 230, 255, DECOR_VU},
+    // 6: console -- charcoal desk, lighter strips, white caps, lime accent, faders
+    {160, 25, 28, 160, 20, 50, 0, 0, 225, 160, 20, 125, 70, 210, 235, 0, 220, 240, DECOR_MIXER},
 };
 #define DEFAULT_THEME 3
 static theme_t theme;
@@ -294,6 +310,49 @@ static const uint8_t                font_height[FONT_SLOTS]  = {UI_CHAR_H, BIG_C
 #define BAR_GAP 3
 #define BAR_SEG_W ((BAR_W - (BAR_SEGMENTS - 1) * BAR_GAP) / BAR_SEGMENTS)
 
+// DECOR_DIAL's App screen: the dial in the left DIAL_W columns (one dot per
+// bar segment on a 270-degree arc, open at the bottom), the panel with the
+// app name, title, play state and hints in the rest.
+#define DIAL_W 146
+#define DIAL_CX 71
+#define DIAL_CY 70
+#define DIAL_DOT 3
+#define DIAL_FACE 44
+// DECOR_VU's meter: the face's box, the needle's pivot near its bottom,
+// the scale on a 100-degree arc, a percent a degree.
+#define VU_W 204
+#define VU_PX 102
+#define VU_PY 126
+#define VU_R 96
+#define VU_RED 80 // the red zone, from here up
+// DECOR_MIXER's fader: a strip with the fader's track and an LED column.
+#define MIXER_W 120
+#define FADER_X 36
+#define FADER_Y0 20
+#define FADER_Y1 110
+#define LED_X 72
+#define LED_W 28
+#define LEDS 18 // 5 px apiece, FADER_Y0..FADER_Y1
+#define PANEL_TITLE_Y 38
+#define PANEL_STATE_Y 80
+#define PANEL_HINT_Y 116
+// Each dot's offset from the dial's center, radius 56, from the bottom left
+// clockwise round to the bottom right.
+static const int8_t dial_dots[BAR_SEGMENTS][2] = {
+    {-40, 40}, {-45, 33}, {-50, 25}, {-54, 16}, {-55, 8}, {-56, -2}, {-55, -11}, {-53, -19}, {-49, -28}, {-44, -35},
+    {-37, -42}, {-30, -47}, {-22, -51}, {-14, -54}, {-5, -56}, {5, -56}, {14, -54}, {22, -51}, {30, -47}, {37, -42},
+    {44, -35}, {49, -28}, {53, -19}, {55, -11}, {56, -2}, {55, 8}, {54, 16}, {50, 25}, {45, 33}, {40, 40},
+};
+// sin and cos * 1024 of 0..50 degrees, for the VU meter.
+static const int16_t vu_sincos[51][2] = {
+    {0, 1024}, {18, 1024}, {36, 1023}, {54, 1023}, {71, 1022}, {89, 1020}, {107, 1018}, {125, 1016}, {143, 1014}, {160, 1011},
+    {178, 1008}, {195, 1005}, {213, 1002}, {230, 998}, {248, 994}, {265, 989}, {282, 984}, {299, 979}, {316, 974}, {333, 968},
+    {350, 962}, {367, 956}, {384, 949}, {400, 943}, {416, 935}, {433, 928}, {449, 920}, {465, 912}, {481, 904}, {496, 896},
+    {512, 887}, {527, 878}, {543, 868}, {558, 859}, {573, 849}, {587, 839}, {602, 828}, {616, 818}, {630, 807}, {644, 796},
+    {658, 784}, {672, 773}, {685, 761}, {698, 749}, {711, 737}, {724, 724}, {737, 711}, {749, 698}, {761, 685}, {773, 672},
+    {784, 658},
+};
+
 // Menu screen: a vertical list, one app per row ("name - song title"),
 // scrolling to keep the cursor in view.
 #define LIST_ROWS 4
@@ -302,6 +361,7 @@ static const uint8_t                font_height[FONT_SLOTS]  = {UI_CHAR_H, BIG_C
 #define LIST_TOP ((LCD_HEIGHT - LIST_ROWS * LIST_ROW_H) / 2)
 #define LIST_PAD 8
 #define ACTIVE_DOT 5 // marks the row of the app the App screen would show, independent of the cursor
+#define PILL_R 15
 
 // The ticker renders into an off-screen surface one glyph wider than the
 // title row on each side, so glyphs half past either edge get clipped by the
@@ -333,6 +393,19 @@ static void lcd_clear_region(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
     qp_rect(lcd, x0, y0, x1, y1, CT(bg), true);
 }
 
+// A filled rectangle with round corners, up to half-circle ends on a row
+// (DECOR_DIAL's boxes).
+static void draw_pill(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint8_t h, uint8_t s, uint8_t v) {
+    uint16_t r = (y1 - y0) / 2;
+    if (r > PILL_R) r = PILL_R;
+    qp_circle(lcd, x0 + r, y0 + r, r, h, s, v, true);
+    qp_circle(lcd, x1 - r, y0 + r, r, h, s, v, true);
+    qp_circle(lcd, x0 + r, y1 - r, r, h, s, v, true);
+    qp_circle(lcd, x1 - r, y1 - r, r, h, s, v, true);
+    qp_rect(lcd, x0 + r, y0, x1 - r, y1, h, s, v, true);
+    qp_rect(lcd, x0, y0 + r, x1, y1 - r, h, s, v, true);
+}
+
 // A themed rectangle. `selected` picks an accent fill (a lit segment frame,
 // a chosen menu chip); `sunken` only matters for DECOR_BEVEL, where it picks
 // a recessed "LCD well" look (dark-then-light bevel, `well` fill) over a
@@ -342,7 +415,21 @@ static void lcd_clear_region(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
 //   DECOR_FLAT:  just the fill, or (unselected) an outline over the screen
 //                bg -- the original terminal look.
 static void draw_box(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, const theme_t *t, bool selected, bool sunken) {
-    if (t->decor == DECOR_BEVEL) {
+    if (t->decor == DECOR_DIAL) {
+        if (selected) {
+            draw_pill(x0, y0, x1, y1, CT(accent));
+        } else {
+            draw_pill(x0, y0, x1, y1, CT(well));
+        }
+    } else if (t->decor == DECOR_VU) {
+        // A lit face with a red mark on its left, or an outline.
+        if (selected) {
+            qp_rect(lcd, x0, y0, x1, y1, CT(well), true);
+            qp_rect(lcd, x0, y0, x0 + 3, y1, CT(accent), true);
+        } else {
+            qp_rect(lcd, x0, y0, x1, y1, t->dim_h, t->dim_s, t->dim_v / 2, false);
+        }
+    } else if (t->decor == DECOR_BEVEL) {
         if (selected) {
             qp_rect(lcd, x0, y0, x1, y1, CT(accent), true);
         } else if (sunken) {
@@ -446,12 +533,255 @@ static uint8_t neon_hue(const theme_t *t, uint16_t i, uint16_t n) {
     return t->fg_h + (int16_t)(t->accent_h - t->fg_h) * i / (n ? n : 1);
 }
 
+// DECOR_DIAL and DECOR_VU put the volume on the left and a panel with the
+// rest on the right; the title row is in the panel then.
+static bool side_layout(void) {
+    return theme.decor == DECOR_DIAL || theme.decor == DECOR_VU || theme.decor == DECOR_MIXER;
+}
+static uint16_t gauge_w(void) {
+    return theme.decor == DECOR_VU ? VU_W : theme.decor == DECOR_MIXER ? MIXER_W : DIAL_W;
+}
+#define PANEL_X (gauge_w() + 6)
+#define PANEL_W (LCD_WIDTH - MARGIN - PANEL_X)
+static uint16_t ticker_x(void) {
+    return side_layout() ? PANEL_X : MARGIN;
+}
+static uint16_t ticker_y(void) {
+    return side_layout() ? PANEL_TITLE_Y : TITLE_Y;
+}
+static uint16_t ticker_w(void) {
+    return side_layout() ? PANEL_W : TEXT_W;
+}
+
+// The side layouts' header: everything in the panel but the title -- the
+// app name (or "no media") and a dot per app, the play state, the hints.
+static void draw_panel(void) {
+    const theme_t *t = &theme;
+    app_t         *a = &apps[active_app];
+    lcd_clear_region(gauge_w(), 0, LCD_WIDTH - 1, PANEL_TITLE_Y - 1);
+    lcd_clear_region(gauge_w(), PANEL_TITLE_Y + BIG_CHAR_H, LCD_WIDTH - 1, LCD_HEIGHT - 1);
+
+    uint16_t dots_x = PANEL_X + PANEL_W - app_count * 8;
+    for (uint8_t i = 0; i < app_count; i++) {
+        uint16_t cx = dots_x + i * 8 + 4, cy = ROW1_Y + UI_CHAR_H / 2;
+        if (i == active_app) {
+            qp_circle(lcd, cx, cy, 2, CT(accent), true);
+        } else {
+            qp_circle(lcd, cx, cy, 2, t->dim_h, t->dim_s, t->dim_v / 2, true);
+        }
+    }
+    char name[NAME_MAX + 3];
+    fit_text(a->has_media && a->title[0] ? a->name : "no media", name, sizeof(name), font_ui, dots_x - 8 - PANEL_X);
+    qp_drawtext_recolor(lcd, PANEL_X, ROW1_Y, font_ui, name, CT(dim), CT(bg));
+
+    if (a->has_media) {
+        uint16_t ix = PANEL_X + 1, iy = PANEL_STATE_Y + 2;
+        if (a->playing) {
+            for (uint8_t i = 0; i < 5; i++) qp_line(lcd, ix + i, iy + i, ix + i, iy + 8 - i, CT(accent));
+            qp_drawtext_recolor(lcd, PANEL_X + 12, PANEL_STATE_Y, font_ui, "playing", CT(fg), CT(bg));
+        } else {
+            qp_rect(lcd, ix, iy, ix + 1, iy + 8, CT(dim), true);
+            qp_rect(lcd, ix + 4, iy, ix + 5, iy + 8, CT(dim), true);
+            qp_drawtext_recolor(lcd, PANEL_X + 12, PANEL_STATE_Y, font_ui, "paused", CT(dim), CT(bg));
+        }
+    }
+
+    if (t->decor == DECOR_VU) {
+        qp_line(lcd, PANEL_X, PANEL_HINT_Y - 9, PANEL_X + PANEL_W - 1, PANEL_HINT_Y - 9, t->dim_h, t->dim_s, t->dim_v / 3);
+    } else {
+        qp_line(lcd, PANEL_X, PANEL_HINT_Y - 9, PANEL_X + PANEL_W - 1, PANEL_HINT_Y - 9, CT(well));
+    }
+    const char *hint = PANEL_W >= qp_textwidth(font_ui, "click: apps   2x: pause   hold: mute") ? "click: apps   2x: pause   hold: mute" : "2x: pause   hold: mute";
+    qp_drawtext_recolor(lcd, PANEL_X, PANEL_HINT_Y, font_ui, hint, t->dim_h, t->dim_s, t->dim_v * 3 / 4, CT(bg));
+}
+
+// The point `r` px from the VU meter's pivot, at `pct` percent of the scale.
+static void vu_point(uint8_t pct, uint16_t r, int16_t *x, int16_t *y) {
+    int8_t  d = (int8_t)pct - 50;
+    uint8_t a = d < 0 ? -d : d;
+    int16_t s = vu_sincos[a][0] * (int32_t)r / 1024;
+    *x        = VU_PX + (d < 0 ? -s : s);
+    *y        = VU_PY - vu_sincos[a][1] * (int32_t)r / 1024;
+}
+
+static void vu_tick(uint8_t pct, uint16_t r0, uint16_t r1, uint8_t h, uint8_t s, uint8_t v) {
+    int16_t x0, y0, x1, y1;
+    vu_point(pct, r0, &x0, &y0);
+    vu_point(pct, r1, &x1, &y1);
+    qp_line(lcd, x0, y0, x1, y1, h, s, v);
+}
+
+// A fader's cap: a light block with a dark grip line across it.
+static void draw_fader_cap(uint16_t cx, uint16_t cy, uint16_t half_w, uint8_t h, uint8_t s, uint8_t v) {
+    const theme_t *t = &theme;
+    qp_rect(lcd, cx - half_w, cy - 5, cx + half_w, cy + 5, h, s, v, true);
+    qp_line(lcd, cx - half_w + 2, cy, cx + half_w - 2, cy, CT(bg));
+}
+
+// DECOR_MIXER's volume: a strip with the fader at the volume, ticks every
+// 10, and an LED column lit up to it -- green, then yellow from 70, red
+// from 90 -- dark when muted; "VOL nn" / "MUTE" under them.
+static void draw_fader(void) {
+    const theme_t *t       = &theme;
+    app_t         *a       = &apps[active_app];
+    uint8_t        percent = a->volume > 100 ? 100 : a->volume;
+    uint8_t        lit     = (host_seen && !a->muted) ? (uint8_t)(percent * LEDS / 100) : 0;
+
+    lcd_clear_region(0, 0, MIXER_W - 1, LCD_HEIGHT - 1);
+    qp_rect(lcd, MARGIN, MARGIN, MIXER_W - 7, LCD_HEIGHT - 1 - MARGIN, CT(well), true);
+    for (uint8_t k = 0; k <= 10; k++) {
+        uint16_t y = FADER_Y1 - k * (FADER_Y1 - FADER_Y0) / 10;
+        uint16_t l = k % 5 == 0 ? 8 : 4;
+        qp_line(lcd, FADER_X - 8 - l, y, FADER_X - 8, y, CT(dim));
+    }
+    qp_rect(lcd, FADER_X - 1, FADER_Y0, FADER_X + 1, FADER_Y1, CT(bg), true);
+    for (uint8_t i = 0; i < LEDS; i++) {
+        uint16_t y1  = FADER_Y1 - i * 5, y0 = y1 - 3;
+        uint8_t  hue = i >= LEDS * 9 / 10 ? 0 : i >= LEDS * 7 / 10 ? 43 : 85;
+        qp_rect(lcd, LED_X, y0, LED_X + LED_W - 1, y1, hue, 255, i < lit ? 255 : 45, true);
+    }
+    uint16_t cy = FADER_Y1 - percent * (FADER_Y1 - FADER_Y0) / 100;
+    if (a->muted) {
+        draw_fader_cap(FADER_X, cy, 13, t->fg_h, t->fg_s, t->fg_v / 2);
+    } else {
+        draw_fader_cap(FADER_X, cy, 13, CT(fg));
+    }
+
+    char label[10];
+    if (!host_seen) {
+        strcpy(label, "VOL --");
+    } else if (a->muted) {
+        strcpy(label, "MUTE");
+    } else {
+        snprintf(label, sizeof(label), "VOL %u", a->volume);
+    }
+    uint16_t lx = (MIXER_W - qp_textwidth(font_ui, label)) / 2;
+    if (a->muted) {
+        qp_drawtext_recolor(lcd, lx, FADER_Y1 + 5, font_ui, label, CT(mute), CT(well));
+    } else {
+        qp_drawtext_recolor(lcd, lx, FADER_Y1 + 5, font_ui, label, CT(fg), CT(well));
+    }
+}
+
+// DECOR_VU's volume: the meter's face, its scale (ticks every 5, numbers
+// every 20, red from VU_RED), the needle on the volume -- resting at 0 when
+// muted -- and "VOL nn" / "MUTE" in the corner.
+static void draw_vu(void) {
+    const theme_t *t       = &theme;
+    app_t         *a       = &apps[active_app];
+    uint8_t        percent = a->volume > 100 ? 100 : a->volume;
+    uint8_t        needle  = (host_seen && !a->muted) ? percent : 0;
+
+    lcd_clear_region(0, 0, VU_W - 1, LCD_HEIGHT - 1);
+    qp_rect(lcd, MARGIN, MARGIN, VU_W - 7, LCD_HEIGHT - 1 - MARGIN, CT(well), true);
+    qp_rect(lcd, MARGIN + 2, MARGIN + 2, VU_W - 9, LCD_HEIGHT - 3 - MARGIN, t->well_h, t->well_s, t->well_v * 3 / 4, false);
+
+    // The arc: a thin line, a thick red band from VU_RED.
+    for (uint8_t p = 0; p < 100; p++) {
+        for (uint16_t r = p >= VU_RED ? VU_R - 4 : VU_R; r <= VU_R; r++) {
+            int16_t x0, y0, x1, y1;
+            vu_point(p, r, &x0, &y0);
+            vu_point(p + 1, r, &x1, &y1);
+            if (p >= VU_RED) {
+                // Twice, a pixel apart, so the band has no holes.
+                qp_line(lcd, x0, y0, x1, y1, CT(accent));
+                qp_line(lcd, x0, y0 + 1, x1, y1 + 1, CT(accent));
+            } else {
+                qp_line(lcd, x0, y0, x1, y1, CT(bg));
+            }
+        }
+    }
+    for (uint8_t p = 0; p <= 100; p += 5) {
+        bool major = p % 20 == 0;
+        vu_tick(p, VU_R - (major ? 12 : 6), VU_R, p >= VU_RED ? t->accent_h : t->bg_h, p >= VU_RED ? t->accent_s : t->bg_s, p >= VU_RED ? t->accent_v : t->bg_v);
+        if (major) {
+            char    num[4];
+            int16_t nx, ny;
+            snprintf(num, sizeof(num), "%u", p);
+            vu_point(p, VU_R + 13, &nx, &ny);
+            uint16_t w = qp_textwidth(font_ui, num);
+            if (p >= VU_RED) {
+                qp_drawtext_recolor(lcd, nx - w / 2, ny - UI_CHAR_H / 2, font_ui, num, CT(accent), CT(well));
+            } else {
+                qp_drawtext_recolor(lcd, nx - w / 2, ny - UI_CHAR_H / 2, font_ui, num, CT(bg), CT(well));
+            }
+        }
+    }
+
+    char label[10];
+    if (!host_seen) {
+        strcpy(label, "VOL --");
+    } else if (a->muted) {
+        strcpy(label, "MUTE");
+    } else {
+        snprintf(label, sizeof(label), "VOL %u", a->volume);
+    }
+    uint16_t ly = LCD_HEIGHT - MARGIN - 6 - UI_CHAR_H;
+    if (a->muted) {
+        qp_drawtext_recolor(lcd, MARGIN + 8, ly, font_ui, label, CT(mute), CT(well));
+    } else {
+        qp_drawtext_recolor(lcd, MARGIN + 8, ly, font_ui, label, CT(bg), CT(well));
+    }
+    qp_drawtext_recolor(lcd, VU_W - 15 - qp_textwidth(font_ui, "VU"), ly, font_ui, "VU", CT(bg), CT(well));
+
+    // The needle, two pixels wide, over a dark cap on the pivot.
+    int16_t nx, ny;
+    vu_point(needle, VU_R - 2, &nx, &ny);
+    qp_line(lcd, VU_PX, VU_PY, nx, ny, CT(bg));
+    qp_line(lcd, VU_PX + 1, VU_PY, nx + 1, ny, CT(bg));
+    qp_circle(lcd, VU_PX, VU_PY, 7, CT(bg), true);
+    qp_circle(lcd, VU_PX, VU_PY, 2, t->well_h, t->well_s, t->well_v / 2, true);
+}
+
+// DECOR_DIAL's volume: the dots lit up to the volume, brightening along the
+// arc, the last one haloed; the number on the knob face, "MUTE" under it.
+static void draw_dial(void) {
+    const theme_t *t       = &theme;
+    app_t         *a       = &apps[active_app];
+    uint8_t        percent = a->volume > 100 ? 100 : a->volume;
+    uint8_t        lit     = (host_seen && !a->muted) ? (uint8_t)(percent * BAR_SEGMENTS / 100) : 0;
+
+    lcd_clear_region(0, 0, DIAL_W - 1, LCD_HEIGHT - 1);
+    qp_line(lcd, DIAL_W - 2, 14, DIAL_W - 2, LCD_HEIGHT - 15, t->dim_h, t->dim_s, t->dim_v / 3);
+    qp_circle(lcd, DIAL_CX, DIAL_CY, DIAL_FACE, CT(well), true);
+    for (uint8_t i = 0; i < BAR_SEGMENTS; i++) {
+        uint16_t x = DIAL_CX + dial_dots[i][0], y = DIAL_CY + dial_dots[i][1];
+        if (i < lit) {
+            if (i == lit - 1) qp_circle(lcd, x, y, DIAL_DOT + 2, t->accent_h, t->accent_s, t->accent_v / 3, true);
+            qp_circle(lcd, x, y, DIAL_DOT, t->accent_h, t->accent_s, t->accent_v * (150 + 105 * i / (BAR_SEGMENTS - 1)) / 255, true);
+        } else {
+            qp_circle(lcd, x, y, DIAL_DOT, t->dim_h, t->dim_s, t->dim_v / 3, true);
+        }
+    }
+
+    char num[8];
+    if (host_seen) {
+        snprintf(num, sizeof(num), "%u", a->volume);
+    } else {
+        strcpy(num, "--");
+    }
+    const char *label = a->muted ? "MUTE" : "VOL";
+    uint16_t    nx    = DIAL_CX - qp_textwidth(font_big, num) / 2;
+    uint16_t    lx    = DIAL_CX - qp_textwidth(font_ui, label) / 2;
+    if (a->muted) {
+        qp_drawtext_recolor(lcd, nx, DIAL_CY - 17, font_big, num, CT(dim), CT(well));
+        qp_drawtext_recolor(lcd, lx, DIAL_CY + 13, font_ui, label, CT(mute), CT(well));
+    } else {
+        qp_drawtext_recolor(lcd, nx, DIAL_CY - 17, font_big, num, CT(fg), CT(well));
+        qp_drawtext_recolor(lcd, lx, DIAL_CY + 13, font_ui, label, CT(dim), CT(well));
+    }
+}
+
 // App name (left, dim) and "VOL nn" / "MUTE" (right). Boxed themes badge
 // just the VOL/MUTE text; the beveled theme sinks the whole row into one
 // LCD-style well, closer to how Winamp's own time/info readouts read.
 static void draw_header(void) {
     const theme_t *t = &theme;
     app_t         *a = &apps[active_app];
+    if (side_layout()) {
+        draw_panel();
+        return;
+    }
     lcd_clear_region(0, 0, LCD_WIDTH - 1, TITLE_Y - 1);
     if (t->decor == DECOR_BEVEL) {
         draw_box(0, 0, LCD_WIDTH - 1, TITLE_Y - 1, t, false, true);
@@ -502,13 +832,24 @@ static const char *active_title(void) {
 // The big song title, at `title_scroll_offset` pixels into its trip from the
 // right edge to the left; dims along with everything else while muted.
 // Whole glyphs already off the left are skipped, and the ones past the right.
+// With nothing playing, the side layouts show the app's name there instead, still.
 static void draw_ticker(void) {
     const theme_t *t    = &theme;
     const char    *text = active_title();
-    qp_rect(ticker_surface, 0, 0, TICKER_SURF_W - 1, BIG_CHAR_H - 1, CT(well), true);
+    uint16_t       tw   = ticker_w();
+    int32_t        x    = (int32_t)tw - title_scroll_offset;
+    char           still[NAME_MAX + 3];
+    if (!text[0] && side_layout()) {
+        fit_text(apps[active_app].name, still, sizeof(still), font_big, tw);
+        text = still;
+        x    = 0;
+    }
+    // The title sits in a well, except on the side layouts' panel.
+    uint8_t wh = t->well_h, ws = t->well_s, wv = t->well_v;
+    if (side_layout()) wh = t->bg_h, ws = t->bg_s, wv = t->bg_v;
+    qp_rect(ticker_surface, 0, 0, TICKER_SURF_W - 1, BIG_CHAR_H - 1, wh, ws, wv, true);
 
-    size_t  len   = strlen(text);
-    int32_t x     = (int32_t)TEXT_W - title_scroll_offset;
+    size_t len = strlen(text);
     size_t  first = 0;
     while (first < len && x + big_w(text[first]) <= 0) {
         x += big_w(text[first]);
@@ -516,23 +857,23 @@ static void draw_ticker(void) {
     }
     size_t  n     = 0;
     int32_t end_x = x;
-    while (first + n < len && end_x < TEXT_W) end_x += big_w(text[first + n++]);
+    while (first + n < len && end_x < tw) end_x += big_w(text[first + n++]);
     if (n) {
         char visible[TITLE_MAX + 1];
         memcpy(visible, text + first, n);
         visible[n] = '\0';
         if (apps[active_app].muted) {
-            qp_drawtext_recolor(ticker_surface, x + TICKER_PAD, 0, font_big, visible, CT(dim), CT(well));
+            qp_drawtext_recolor(ticker_surface, x + TICKER_PAD, 0, font_big, visible, CT(dim), wh, ws, wv);
         } else {
-            qp_drawtext_recolor(ticker_surface, x + TICKER_PAD, 0, font_big, visible, CT(fg), CT(well));
+            qp_drawtext_recolor(ticker_surface, x + TICKER_PAD, 0, font_big, visible, CT(fg), wh, ws, wv);
         }
     }
 
     for (uint16_t row = 0; row < BIG_CHAR_H; row++) {
-        memcpy(&ticker_out[row * TEXT_W], &ticker_buf[row * TICKER_SURF_W + TICKER_PAD], TEXT_W * sizeof(uint16_t));
+        memcpy(&ticker_out[row * tw], &ticker_buf[row * TICKER_SURF_W + TICKER_PAD], tw * sizeof(uint16_t));
     }
-    qp_viewport(lcd, MARGIN, TITLE_Y, MARGIN + TEXT_W - 1, TITLE_Y + BIG_CHAR_H - 1);
-    qp_pixdata(lcd, ticker_out, TEXT_W * BIG_CHAR_H);
+    qp_viewport(lcd, ticker_x(), ticker_y(), ticker_x() + tw - 1, ticker_y() + BIG_CHAR_H - 1);
+    qp_pixdata(lcd, ticker_out, tw * BIG_CHAR_H);
 }
 
 static void draw_title(void) {
@@ -552,6 +893,18 @@ static void draw_bar(void) {
     uint8_t        lit       = (host_seen && !a->muted) ? (uint8_t)(percent * BAR_SEGMENTS / 100) : 0;
     uint16_t       actual_w  = BAR_SEGMENTS * BAR_SEG_W + (BAR_SEGMENTS - 1) * BAR_GAP;
     uint16_t       start_x   = MARGIN + (BAR_W - actual_w) / 2;
+    if (t->decor == DECOR_DIAL) {
+        draw_dial();
+        return;
+    }
+    if (t->decor == DECOR_VU) {
+        draw_vu();
+        return;
+    }
+    if (t->decor == DECOR_MIXER) {
+        draw_fader();
+        return;
+    }
 
     lcd_clear_region(0, BAR_Y - 4, LCD_WIDTH - 1, LCD_HEIGHT - 1);
     if (t->decor != DECOR_FLAT) {
@@ -590,7 +943,10 @@ static void render_app_screen(bool full) {
 #define ROW_TEXT_X (ROW_X0 + LIST_PAD)
 static bool draw_row(uint16_t y0, bool sel) {
     const theme_t *t = &theme;
-    if (sel || (t->decor != DECOR_FLAT && t->decor != DECOR_NEON)) {
+    if (t->decor == DECOR_VU && !sel) {
+        // Rows ruled apart instead of boxed.
+        qp_line(lcd, ROW_X0, y0 + LIST_BOX_H, ROW_X1, y0 + LIST_BOX_H, t->dim_h, t->dim_s, t->dim_v / 3);
+    } else if (sel || (t->decor != DECOR_FLAT && t->decor != DECOR_NEON && t->decor != DECOR_MIXER)) {
         draw_box(ROW_X0, y0, ROW_X1, y0 + LIST_BOX_H - 1, t, sel, false);
     }
     return sel && t->decor != DECOR_NEON;
@@ -600,13 +956,25 @@ static bool draw_row(uint16_t y0, bool sel) {
 // text in the dim color (fg when selected).
 static void row_text(uint16_t x, uint16_t y, const char *text, bool sel, bool filled, bool secondary) {
     const theme_t *t = &theme;
-    if (filled) {
+    if (filled && t->decor == DECOR_VU) {
+        if (secondary) {
+            qp_drawtext_recolor(lcd, x, y, font_list, text, CT(dim), CT(well));
+        } else {
+            qp_drawtext_recolor(lcd, x, y, font_list, text, CT(bg), CT(well));
+        }
+    } else if (filled) {
         qp_drawtext_recolor(lcd, x, y, font_list, text, CT(bg), CT(accent));
     } else if (sel) {
         if (secondary) {
             qp_drawtext_recolor(lcd, x, y, font_list, text, CT(fg), CT(well));
         } else {
             qp_drawtext_recolor(lcd, x, y, font_list, text, CT(accent), CT(well));
+        }
+    } else if (t->decor == DECOR_DIAL) {
+        if (secondary) {
+            qp_drawtext_recolor(lcd, x, y, font_list, text, CT(dim), CT(well));
+        } else {
+            qp_drawtext_recolor(lcd, x, y, font_list, text, CT(fg), CT(well));
         }
     } else if (secondary) {
         qp_drawtext_recolor(lcd, x, y, font_list, text, CT(dim), CT(bg));
@@ -634,7 +1002,10 @@ static void render_menu_screen(void) {
     uint8_t visible = app_count - start;
     if (visible > LIST_ROWS) visible = LIST_ROWS;
 
-    uint16_t text_w = ROW_X1 - LIST_PAD - ACTIVE_DOT - LIST_PAD - ROW_TEXT_X;
+    // The side layouts add each app's volume, left of the active dot.
+    uint16_t vol_w  = side_layout() ? qp_textwidth(font_ui, "MUTE") + LIST_PAD : 0;
+    uint16_t vol_x1 = ROW_X1 - LIST_PAD - ACTIVE_DOT - LIST_PAD;
+    uint16_t text_w = vol_x1 - vol_w - ROW_TEXT_X;
 
     for (uint8_t row = 0; row < visible; row++) {
         uint8_t  idx    = start + row;
@@ -652,6 +1023,30 @@ static void render_menu_screen(void) {
                 qp_rect(lcd, dx, dy, dx + ACTIVE_DOT - 1, dy + ACTIVE_DOT - 1, CT(bg), true);
             } else {
                 qp_rect(lcd, dx, dy, dx + ACTIVE_DOT - 1, dy + ACTIVE_DOT - 1, CT(fg), true);
+            }
+        }
+
+        if (vol_w) {
+            char vol[6];
+            if (a->muted) {
+                strcpy(vol, "MUTE");
+            } else {
+                snprintf(vol, sizeof(vol), "%u", a->volume);
+            }
+            uint16_t vx = vol_x1 - qp_textwidth(font_ui, vol), vy = y0 + (LIST_BOX_H - UI_CHAR_H) / 2;
+            // On the row's own color: the selection, a dial's pill or the screen.
+            uint8_t rh = t->bg_h, rs = t->bg_s, rv = t->bg_v;
+            if ((filled && t->decor == DECOR_VU) || (!filled && t->decor == DECOR_DIAL)) {
+                rh = t->well_h, rs = t->well_s, rv = t->well_v;
+            } else if (filled) {
+                rh = t->accent_h, rs = t->accent_s, rv = t->accent_v;
+            }
+            if (filled) {
+                qp_drawtext_recolor(lcd, vx, vy, font_ui, vol, CT(bg), rh, rs, rv);
+            } else if (a->muted) {
+                qp_drawtext_recolor(lcd, vx, vy, font_ui, vol, CT(mute), rh, rs, rv);
+            } else {
+                qp_drawtext_recolor(lcd, vx, vy, font_ui, vol, CT(dim), rh, rs, rv);
             }
         }
 
@@ -725,7 +1120,7 @@ enum { SET_THEME, SET_SAVER, SET_SAVER_AFTER, SET_OFF_AFTER, SET_EXIT, SET_COUNT
 static uint8_t settings_cursor;
 static bool    settings_editing;
 
-static const char *const theme_names[THEME_COUNT] = {"terminal", "neobrutal", "winamp", "neon"};
+static const char *const theme_names[THEME_COUNT] = {"terminal", "neobrutal", "winamp", "neon", "studio", "hifi", "console"};
 static const char *const saver_names[SAVER_COUNT] = {"none", "drive", "stars", "rain", "plasma", "bounce"};
 static const char *const settings_labels[SET_COUNT] = {"Theme", "Screensaver", "Start after", "Screen off", "Exit"};
 // The choices offered on the knob, in seconds (the settings page has the same).
@@ -2217,7 +2612,7 @@ void housekeeping_task_user(void) {
         const char *title = active_title();
         if (title[0] && timer_elapsed32(title_scroll_timer) >= TICKER_STEP_MS) {
             title_scroll_timer = timer_read32();
-            uint16_t trip       = TEXT_W + qp_textwidth(font_big, title);
+            uint16_t trip       = ticker_w() + qp_textwidth(font_big, title);
             title_scroll_offset = (title_scroll_offset + TICKER_STEP_PX) % trip;
             dirty_ticker        = true;
         }

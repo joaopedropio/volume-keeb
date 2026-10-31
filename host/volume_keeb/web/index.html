@@ -292,7 +292,7 @@ const COLOR_INFO = {
   accent: ["Accent", "Lit volume bar, selected row"],
   mute: ["Muted", "The MUTE label"],
 };
-const DECOR_LABEL = { flat: "Flat", boxed: "Boxed", bevel: "Bevel", neon: "Neon" };
+const DECOR_LABEL = { flat: "Flat", boxed: "Boxed", bevel: "Bevel", neon: "Neon", dial: "Dial", vu: "VU meter", mixer: "Mixer" };
 const SAVER_INFO = {
   none: ["None", "Keep showing the controls", "—"],
   drive: ["Drive", "A synthwave drive at sunset", ""],
@@ -353,10 +353,17 @@ const BAR_SEG_W = Math.floor((TEXT_W - (BAR_SEGMENTS - 1) * BAR_GAP) / BAR_SEGME
 const LIST_ROWS = 4, LIST_ROW_H = 35, LIST_BOX_H = 32, LIST_TOP = Math.floor((H - LIST_ROWS * LIST_ROW_H) / 2);
 const LIST_PAD = 8, ACTIVE_DOT = 5, BOX_SHADOW = 2, BOX_BORDER = 1;
 const BEVEL_DARK = [0, 0, 10];
+// The dial decor's App screen (keymap.c's DIAL_*/PANEL_*).
+const DIAL_W = 146, DIAL_CX = 71, DIAL_CY = 70, DIAL_R = 56, DIAL_DOT = 3, DIAL_FACE = 44;
+const PANEL_TITLE_Y = 38, PANEL_STATE_Y = 80, PANEL_HINT_Y = 116;
+// The vu decor's meter (keymap.c's VU_*).
+const VU_W = 204, VU_PX = 102, VU_PY = 126, VU_R = 96, VU_RED = 80;
+// The mixer decor's fader (keymap.c's FADER_*/LED*).
+const MIXER_W = 120, FADER_X = 36, FADER_Y0 = 20, FADER_Y1 = 110, LED_X = 72, LED_W = 28, LEDS = 18;
 const SLOT_H = { ui: 13, title: 27, list: 24 };
 const DEMO = {
   app: { name: "Spotify", volume: 80, title: "Daft Punk - Harder, Better, Faster" },
-  list: [["Master", ""], ["Spotify", "Daft Punk - Harder, Better, Faster"], ["Firefox", "Lo-fi beats to relax/study to"], ["Discord", ""]],
+  list: [["Master", "", 65], ["Spotify", "Daft Punk - Harder, Better, Faster", 80], ["Firefox", "Lo-fi beats to relax/study to", 40], ["Discord", "", 100]],
   cursor: 1,
 };
 
@@ -370,6 +377,16 @@ function rect(x0, y0, x1, y1, hsv, filled = true) {
   ctx.fillRect(x0, y1, x1 - x0 + 1, 1);
   ctx.fillRect(x0, y0, 1, y1 - y0 + 1);
   ctx.fillRect(x1, y0, 1, y1 - y0 + 1);
+}
+function circle(cx, cy, r, hsv) {
+  ctx.fillStyle = css(hsv);
+  ctx.beginPath(); ctx.arc(cx + 0.5, cy + 0.5, r + 0.5, 0, 2 * Math.PI); ctx.fill();
+}
+function pill(x0, y0, x1, y1, hsv) {
+  const r = Math.min(Math.floor((y1 - y0) / 2), 15);
+  circle(x0 + r, y0 + r, r, hsv); circle(x1 - r, y0 + r, r, hsv);
+  circle(x0 + r, y1 - r, r, hsv); circle(x1 - r, y1 - r, r, hsv);
+  rect(x0 + r, y0, x1 - r, y1, hsv); rect(x0, y0 + r, x1, y1 - r, hsv);
 }
 const line = (x0, y0, x1, y1, hsv) => rect(Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1), hsv);
 
@@ -405,7 +422,12 @@ function neonHue(t, i, n) {
 }
 
 function box(x0, y0, x1, y1, t, decor, selected, sunken) {
-  if (decor === "bevel") {
+  if (decor === "dial") {
+    pill(x0, y0, x1, y1, selected ? t.accent : t.well);
+  } else if (decor === "vu") {
+    if (selected) { rect(x0, y0, x1, y1, t.well); rect(x0, y0, x0 + 3, y1, t.accent); }
+    else rect(x0, y0, x1, y1, [t.dim[0], t.dim[1], Math.floor(t.dim[2] / 2)], false);
+  } else if (decor === "bevel") {
     rect(x0, y0, x1, y1, selected ? t.accent : sunken ? t.well : t.bg);
     if (sunken || selected) {
       line(x0, y0, x1, y0, BEVEL_DARK); line(x0, y0, x0, y1, BEVEL_DARK);
@@ -433,7 +455,111 @@ function box(x0, y0, x1, y1, t, decor, selected, sunken) {
   }
 }
 
+// The panel right of the dial or the VU meter, from `gaugeW` on.
+function drawPanel(t, decor, gaugeW) {
+  const a = DEMO.app, PANEL_X = gaugeW + 6, PANEL_W = W - MARGIN - PANEL_X;
+  const n = DEMO.list.length, dotsX = PANEL_X + PANEL_W - n * 8;
+  for (let i = 0; i < n; i++) circle(dotsX + i * 8 + 4, ROW1_Y + 6, 2, i === DEMO.cursor ? t.accent : [t.dim[0], t.dim[1], Math.floor(t.dim[2] / 2)]);
+  text(PANEL_X, ROW1_Y, "ui", fit("ui", a.name, dotsX - 8 - PANEL_X), t.dim, t.bg);
+  text(PANEL_X, PANEL_TITLE_Y, "title", a.title, t.fg, t.bg, PANEL_W);
+  for (let i = 0; i < 5; i++) line(PANEL_X + 1 + i, PANEL_STATE_Y + 2 + i, PANEL_X + 1 + i, PANEL_STATE_Y + 10 - i, t.accent);
+  text(PANEL_X + 12, PANEL_STATE_Y, "ui", "playing", t.fg, t.bg);
+  line(PANEL_X, PANEL_HINT_Y - 9, PANEL_X + PANEL_W - 1, PANEL_HINT_Y - 9, decor === "vu" ? [t.dim[0], t.dim[1], Math.floor(t.dim[2] / 3)] : t.well);
+  const full = "click: apps   2x: pause   hold: mute";
+  text(PANEL_X, PANEL_HINT_Y, "ui", PANEL_W >= textWidth("ui", full) ? full : "2x: pause   hold: mute", [t.dim[0], t.dim[1], Math.floor(t.dim[2] * 3 / 4)], t.bg, PANEL_W);
+}
+
+function vuPoint(pct, r) {
+  const th = (pct - 50) * Math.PI / 180;
+  return [VU_PX + Math.trunc(r * Math.sin(th)), VU_PY - Math.trunc(r * Math.cos(th))];
+}
+function stroke(x0, y0, x1, y1, hsv, w = 1) {
+  ctx.strokeStyle = css(hsv); ctx.lineWidth = w;
+  ctx.beginPath(); ctx.moveTo(x0 + 0.5, y0 + 0.5); ctx.lineTo(x1 + 0.5, y1 + 0.5); ctx.stroke();
+}
+
+function faderCap(t, cx, cy, half, hsv) {
+  rect(cx - half, cy - 5, cx + half, cy + 5, hsv);
+  line(cx - half + 2, cy, cx + half - 2, cy, t.bg);
+}
+
+function drawMixerApp(t) {
+  const a = DEMO.app;
+  rect(0, 0, W - 1, H - 1, t.bg);
+  rect(MARGIN, MARGIN, MIXER_W - 7, H - 1 - MARGIN, t.well);
+  for (let k = 0; k <= 10; k++) {
+    const y = FADER_Y1 - Math.floor(k * (FADER_Y1 - FADER_Y0) / 10), l = k % 5 === 0 ? 8 : 4;
+    line(FADER_X - 8 - l, y, FADER_X - 8, y, t.dim);
+  }
+  rect(FADER_X - 1, FADER_Y0, FADER_X + 1, FADER_Y1, t.bg);
+  const lit = Math.floor(a.volume * LEDS / 100);
+  for (let i = 0; i < LEDS; i++) {
+    const y1 = FADER_Y1 - i * 5, hue = i >= Math.floor(LEDS * 9 / 10) ? 0 : i >= Math.floor(LEDS * 7 / 10) ? 43 : 85;
+    rect(LED_X, y1 - 3, LED_X + LED_W - 1, y1, [hue, 255, i < lit ? 255 : 45]);
+  }
+  faderCap(t, FADER_X, FADER_Y1 - Math.floor(a.volume * (FADER_Y1 - FADER_Y0) / 100), 13, t.fg);
+  const label = `VOL ${a.volume}`;
+  text(Math.floor((MIXER_W - textWidth("ui", label)) / 2), FADER_Y1 + 5, "ui", label, t.fg, t.well);
+  drawPanel(t, "mixer", MIXER_W);
+}
+
+function drawVuApp(t) {
+  const a = DEMO.app;
+  rect(0, 0, W - 1, H - 1, t.bg);
+  rect(MARGIN, MARGIN, VU_W - 7, H - 1 - MARGIN, t.well);
+  rect(MARGIN + 2, MARGIN + 2, VU_W - 9, H - 3 - MARGIN, [t.well[0], t.well[1], Math.floor(t.well[2] * 3 / 4)], false);
+  for (let p = 0; p < 100; p++) {
+    const red = p >= VU_RED;
+    for (let r = red ? VU_R - 4 : VU_R; r <= VU_R; r++) {
+      const [x0, y0] = vuPoint(p, r), [x1, y1] = vuPoint(p + 1, r);
+      stroke(x0, y0, x1, y1, red ? t.accent : t.bg, red ? 2 : 1);
+    }
+  }
+  for (let p = 0; p <= 100; p += 5) {
+    const major = p % 20 === 0, c = p >= VU_RED ? t.accent : t.bg;
+    const [x0, y0] = vuPoint(p, VU_R - (major ? 12 : 6)), [x1, y1] = vuPoint(p, VU_R);
+    stroke(x0, y0, x1, y1, c);
+    if (major) {
+      const [nx, ny] = vuPoint(p, VU_R + 13), s = String(p);
+      text(nx - Math.floor(textWidth("ui", s) / 2), ny - 6, "ui", s, c, t.well);
+    }
+  }
+  const ly = H - MARGIN - 6 - SLOT_H.ui;
+  text(MARGIN + 8, ly, "ui", `VOL ${a.volume}`, t.bg, t.well);
+  text(VU_W - 15 - textWidth("ui", "VU"), ly, "ui", "VU", t.bg, t.well);
+  const [nx, ny] = vuPoint(a.volume, VU_R - 2);
+  stroke(VU_PX, VU_PY, nx, ny, t.bg, 2);
+  circle(VU_PX, VU_PY, 7, t.bg);
+  circle(VU_PX, VU_PY, 2, [t.well[0], t.well[1], Math.floor(t.well[2] / 2)]);
+  drawPanel(t, "vu", VU_W);
+}
+
+function drawDialApp(t) {
+  const a = DEMO.app;
+  rect(0, 0, W - 1, H - 1, t.bg);
+  line(DIAL_W - 2, 14, DIAL_W - 2, H - 15, [t.dim[0], t.dim[1], Math.floor(t.dim[2] / 3)]);
+  circle(DIAL_CX, DIAL_CY, DIAL_FACE, t.well);
+  const lit = Math.floor(a.volume * BAR_SEGMENTS / 100);
+  for (let i = 0; i < BAR_SEGMENTS; i++) {
+    const th = (-135 + 270 * i / (BAR_SEGMENTS - 1)) * Math.PI / 180;
+    const x = DIAL_CX + Math.round(DIAL_R * Math.sin(th)), y = DIAL_CY - Math.round(DIAL_R * Math.cos(th));
+    if (i < lit) {
+      if (i === lit - 1) circle(x, y, DIAL_DOT + 2, [t.accent[0], t.accent[1], Math.floor(t.accent[2] / 3)]);
+      circle(x, y, DIAL_DOT, [t.accent[0], t.accent[1], Math.floor(t.accent[2] * (150 + Math.floor(105 * i / (BAR_SEGMENTS - 1))) / 255)]);
+    } else {
+      circle(x, y, DIAL_DOT, [t.dim[0], t.dim[1], Math.floor(t.dim[2] / 3)]);
+    }
+  }
+  const num = String(a.volume);
+  text(DIAL_CX - Math.floor(textWidth("title", num) / 2), DIAL_CY - 17, "title", num, t.fg, t.well);
+  text(DIAL_CX - Math.floor(textWidth("ui", "VOL") / 2), DIAL_CY + 13, "ui", "VOL", t.dim, t.well);
+  drawPanel(t, "dial", DIAL_W);
+}
+
 function drawApp(t, decor) {
+  if (decor === "dial") return drawDialApp(t);
+  if (decor === "vu") return drawVuApp(t);
+  if (decor === "mixer") return drawMixerApp(t);
   const a = DEMO.app;
   rect(0, 0, W - 1, H - 1, t.bg);
   if (decor === "bevel") box(0, 0, W - 1, TITLE_Y - 1, t, decor, false, true);
@@ -475,25 +601,32 @@ function drawApp(t, decor) {
 function drawMenu(t, decor) {
   rect(0, 0, W - 1, H - 1, t.bg);
   const x0 = MARGIN, x1 = W - MARGIN - 1 - BOX_SHADOW, textX = x0 + LIST_PAD;
-  const textW = x1 - LIST_PAD - ACTIVE_DOT - LIST_PAD - textX;
-  DEMO.list.forEach(([name, song], row) => {
+  const volW = decor === "dial" || decor === "vu" || decor === "mixer" ? textWidth("ui", "MUTE") + LIST_PAD : 0, volX1 = x1 - LIST_PAD - ACTIVE_DOT - LIST_PAD;
+  const textW = volX1 - volW - textX;
+  const rowBg = decor === "dial" ? t.well : t.bg, selBg = decor === "vu" ? t.well : t.accent;
+  DEMO.list.forEach(([name, song, vol], row) => {
     const sel = row === DEMO.cursor, filled = sel && decor !== "neon";
     const y0 = LIST_TOP + row * LIST_ROW_H;
-    if (sel || (decor !== "flat" && decor !== "neon")) box(x0, y0, x1, y0 + LIST_BOX_H - 1, t, decor, sel, false);
+    if (decor === "vu" && !sel) line(x0, y0 + LIST_BOX_H, x1, y0 + LIST_BOX_H, [t.dim[0], t.dim[1], Math.floor(t.dim[2] / 3)]);
+    else if (sel || (decor !== "flat" && decor !== "neon" && decor !== "mixer")) box(x0, y0, x1, y0 + LIST_BOX_H - 1, t, decor, sel, false);
     if (row === DEMO.cursor) {
       const dx = x1 - LIST_PAD - ACTIVE_DOT + 1, dy = y0 + Math.floor((LIST_BOX_H - ACTIVE_DOT) / 2);
       rect(dx, dy, dx + ACTIVE_DOT - 1, dy + ACTIVE_DOT - 1, filled ? t.bg : t.fg);
     }
+    if (volW) {
+      const v = String(vol);
+      text(volX1 - textWidth("ui", v), y0 + Math.floor((LIST_BOX_H - SLOT_H.ui) / 2), "ui", v, filled ? t.bg : t.dim, filled ? selBg : rowBg);
+    }
     const ty = y0 + Math.floor((LIST_BOX_H - SLOT_H.list) / 2);
     const shown = fit("list", name, textW), nameW = textWidth("list", shown);
-    if (filled) text(textX, ty, "list", shown, t.bg, t.accent);
+    if (filled) text(textX, ty, "list", shown, t.bg, selBg);
     else if (sel) text(textX, ty, "list", shown, t.accent, t.well);
-    else text(textX, ty, "list", shown, t.fg, t.bg);
+    else text(textX, ty, "list", shown, t.fg, rowBg);
     if (song && nameW < textW) {
       const s = fit("list", " - " + song, textW - nameW);
-      if (filled) text(textX + nameW, ty, "list", s, t.bg, t.accent);
+      if (filled) text(textX + nameW, ty, "list", s, decor === "vu" ? t.dim : t.bg, selBg);
       else if (sel) text(textX + nameW, ty, "list", s, t.fg, t.well);
-      else text(textX + nameW, ty, "list", s, t.dim, t.bg);
+      else text(textX + nameW, ty, "list", s, t.dim, rowBg);
     }
   });
 }

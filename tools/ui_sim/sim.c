@@ -133,7 +133,12 @@ int main(int argc, char **argv) {
             snprintf(name, sizeof(name), "t%u_app_%d", th, f); dump(name);
             tick(1500);
         }
+        hold(); snprintf(name, sizeof(name), "t%u_app_muted", th); dump(name);
+        hold();
         click(); // back to menu
+        turn(false); click(); // Master, nothing playing
+        snprintf(name, sizeof(name), "t%u_app_nomedia", th); dump(name);
+        click();
     }
 
     // Idle long enough for the screensaver, then the drive along its whole
