@@ -178,6 +178,7 @@ The settings page can replace each of the three fonts. The host converts the fon
 | `qff.py` | TTF/OTF → QFF, and the page's font previews |
 | `config.py` | `config.json` and the fonts, in `~/.config/volume-keeb` or `%APPDATA%\volume-keeb` |
 | `tray.py`, `autostart.py` | The tray icon (pystray) and Windows' "Start with Windows" (the HKCU `Run` key) |
+| `updates.py`, `version.py` | Checks GitHub's latest release every 6 h; puts its `.uf2` on the knob (`BOOTLOADER_CMD`, wait for the `RPI-RP2` drive, copy, wait for the knob to reconnect). The app's own version is the repo's `VERSION` |
 
 - **Linux**: apps come from `pactl list sink-inputs` (one per playing stream), plus a synthetic `Master` for the default sink. It wakes on every `pactl subscribe` event about sinks/server.
 - **Windows**: apps are the processes with an audio session (all sessions of one process are one app), plus `Master` for the default output's endpoint volume. Nothing announces changes, so it polls every 0.5 s. COM is used in the multithreaded apartment, which pywinrt needs too, and only from the sync thread. **Untested on real hardware so far.**
@@ -220,10 +221,12 @@ It lands in `host\dist\volume-keeb.exe`. To run from source instead: `pip instal
 | host → knob | `0x66`–`0x68` | Font upload: begin (slot, length, CRC; erases), data (offset + up to 26 bytes), end (checks, loads) |
 | host → knob | `0x69` | Clear a font slot (back to the built-in font) |
 | host → knob | `0x6A` | Ask which fonts the slots hold |
+| host → knob | `0x6C` | Ask the firmware's version |
 | host → knob | `0x6B` | Screen: screensaver kind, seconds before it starts, seconds before the screen turns off (0 = never), and a flag to start the screensaver now (the page's **Show on the knob**) |
 | knob → host | `0x70` | Action for one app id: `0` set volume, `1` toggle mute, `2` play/pause |
 | knob → host | `0x71` | Result of a font begin/end/clear |
 | knob → host | `0x72` | Each slot's font CRC (0 = built-in) |
+| knob → host | `0x73` | Firmware version: major, minor, patch. The v0.1.0 firmware doesn't answer `0x6C`, so silence means v0.1.0 |
 
 ### Adding a theme
 
@@ -279,11 +282,16 @@ The encoder is chosen with `encoder` in the `.scad`. Only `"hw040"` is measured 
 
 ## Releases
 
-`.github/workflows/release.yml` builds `volume-keeb.uf2` (in QMK's `qmk_cli` container, against the `qmk_firmware` tag in `QMK_REF`) and `volume-keeb.exe` (on a Windows runner, with `build_windows.ps1`). Pushing a `v*` tag also publishes a GitHub release with both files and the case's two STLs:
+`.github/workflows/release.yml` builds `volume-keeb.uf2` (in QMK's `qmk_cli` container, against the `qmk_firmware` tag in `QMK_REF`) and `volume-keeb.exe` (on a Windows runner, with `build_windows.ps1`). Pushing a `v*` tag also publishes a GitHub release with both files and the case's two STLs.
+
+The version lives in `VERSION` at the repo root. The firmware build reads it (the keymap's `rules.mk` turns it into `FW_VERSION_*`, which the knob reports), so does the host app (`version.py`; `build_windows.ps1` bundles the file), and the workflow refuses a tag that doesn't match it. To release, bump it, commit, then tag:
 
 ```sh
+echo 1.2.0 > VERSION && git commit -am "v1.2.0"
 git tag v1.2.0
-git push origin v1.2.0
+git push origin main v1.2.0
 ```
+
+Installed apps notice the new release within 6 hours and offer it on the settings page (see the README's Updates section).
 
 The README links to `releases/latest/download/<file>`, so keep those file names. Running the workflow by hand from the Actions tab builds the same files as workflow artifacts without publishing anything. When moving to a newer QMK, bump `QMK_REF` and the clone command in [Building the firmware](#building-the-firmware) together.

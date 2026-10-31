@@ -16,7 +16,7 @@ import zlib
 from .knob import Knob
 from .protocol import (
     CTRL_CMD, FONT_CLEAR_CMD, FONT_END_CMD, FONT_INFO_CMD, FONT_QUERY_CMD, FONT_SLOTS, FONT_STATUS,
-    FONT_STATUS_CMD, HEARTBEAT_S, THEME_IDS, THEME_CMD, app_packets, font_begin_packet, font_data_packets,
+    FONT_STATUS_CMD, HEARTBEAT_S, THEME_IDS, THEME_CMD, VERSION_INFO_CMD, VERSION_QUERY_CMD, app_packets, font_begin_packet, font_data_packets,
     palette_packet, parse_font_info, screen_packet,
 )
 
@@ -37,6 +37,8 @@ class Engine:
         self.need_setup = False
         self.apps = []  # the snapshot the knob has, indexed by the ids it sends back
         self.fonts_supported = None  # unknown until the knob answers (or doesn't) FONT_QUERY_CMD
+        self.firmware_version = None  # "x.y.z", or None if it didn't answer (v0.1.0) or isn't connected
+        self.setups = 0  # times the knob was (re)connected and brought up to date
         self.font_jobs = {slot: {"state": "idle", "progress": 0.0, "error": ""} for slot in FONT_SLOTS}
 
     def start(self):
@@ -62,7 +64,7 @@ class Engine:
             if report[0] == CTRL_CMD and len(report) >= 4:
                 self.actions.put((report[1], report[2], report[3]))
                 self.wake()
-            elif report[0] in (FONT_STATUS_CMD, FONT_INFO_CMD):
+            elif report[0] in (FONT_STATUS_CMD, FONT_INFO_CMD, VERSION_INFO_CMD):
                 self.replies.put(report)
 
     def _sync_loop(self):
@@ -76,7 +78,9 @@ class Engine:
                 self.need_setup = False
                 self.push_theme()
                 self.push_screen()
+                self.query_version()
                 self.sync_fonts()
+                self.setups += 1
                 last_packets = None
             while not self.actions.empty():
                 app_id, action, value = self.actions.get()
@@ -111,6 +115,15 @@ class Engine:
     def push_screen(self, preview=False):
         s = self.config.data["screen"]
         self.knob.write(screen_packet(s["saver"], s["saver_after"], s["off_after"], preview))
+
+    def query_version(self):
+        with self.font_lock:  # shares self.replies with the font commands
+            self._drain_replies()
+            self.firmware_version = None
+            if self.knob.write(bytes([VERSION_QUERY_CMD])):
+                report = self._wait_reply(VERSION_INFO_CMD, timeout=1.0)
+                if report is not None:
+                    self.firmware_version = ".".join(str(b) for b in report[1:4])
 
     # -- fonts -----------------------------------------------------------
 

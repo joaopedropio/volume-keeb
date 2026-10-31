@@ -9,6 +9,7 @@ python -m venv .venv
 .\.venv\Scripts\pyinstaller --noconfirm --onefile --windowed --name volume-keeb `
     --icon volume-keeb.ico `
     --add-data "volume_keeb/web;volume_keeb/web" `
+    --add-data "../VERSION;." `
     --collect-submodules winrt `
     --hidden-import volume_keeb.audio_windows `
     --hidden-import volume_keeb.autostart `

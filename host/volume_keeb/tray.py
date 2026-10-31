@@ -1,4 +1,5 @@
-"""The tray icon (pystray): "Settings" opens the page in the browser.
+"""The tray icon (pystray): "Settings" opens the page in the browser, and
+an extra item shows up when a newer release is out.
 
 Optional: without pystray, or without a tray to put it in, the app runs
 the same, minus the icon, and the page is opened by hand or with --open.
@@ -27,7 +28,7 @@ def icon_png(size=64):
     return buf.getvalue()
 
 
-def run(url, autostart=None):
+def run(url, autostart=None, updates=None):
     """Shows the icon and blocks until Quit; returns False (at once) if
     there's no tray to show it in."""
     try:
@@ -37,6 +38,12 @@ def run(url, autostart=None):
         return False
 
     items = [pystray.MenuItem("Settings", lambda: webbrowser.open(url), default=True)]
+    if updates is not None:
+        items.append(pystray.MenuItem(
+            lambda item: f"Update available: v{updates.latest['version']}" if updates.latest else "",
+            lambda: webbrowser.open(url + "#updates"),
+            visible=lambda item: updates.app_update() or updates.firmware_update(),
+        ))
     if autostart is not None:
         items.append(pystray.MenuItem(
             "Start with Windows",
@@ -45,6 +52,8 @@ def run(url, autostart=None):
         ))
     items.append(pystray.MenuItem("Quit", lambda icon: icon.stop()))
     icon = pystray.Icon("volume-keeb", icon_image(), "volume-keeb", menu=pystray.Menu(*items))
+    if updates is not None:
+        updates.on_change = icon.update_menu
     try:
         icon.run()
     except Exception as e:

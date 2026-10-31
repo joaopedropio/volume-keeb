@@ -19,6 +19,7 @@ from . import qff
 from .engine import FontUploadError
 from .protocol import COLOR_FIELDS, DECORS, FONT_SLOTS, PRESETS, SAVERS
 from .tray import icon_png
+from .updates import UpdateError
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 MAX_FONT_BYTES = 30 * 1024 * 1024
@@ -94,6 +95,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._put_theme()
             if method == "PUT" and url.path == "/api/screen":
                 return self._put_screen()
+            if method == "POST" and url.path == "/api/updates/check":
+                self.server.updates.check()
+                return self._json(self.server.updates.state())
+            if method == "POST" and url.path == "/api/firmware/update":
+                self.server.updates.update_firmware()
+                return self._json({"ok": True})
             if method == "POST" and url.path == "/api/screen/preview":
                 self.engine.push_screen(preview=True)
                 return self._json({"ok": True})
@@ -109,7 +116,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._clear_font(m.group(1))
         except FileNotFoundError:
             return self._error(404, "not found")
-        except (qff.FontError, ValueError) as e:
+        except (qff.FontError, UpdateError, ValueError) as e:
             return self._error(400, str(e))
         self._error(404, "not found")
 
@@ -142,6 +149,7 @@ class Handler(BaseHTTPRequestHandler):
             "fonts_supported": self.engine.fonts_supported,
             "theme": {"preset": d["preset"], "decor": d["decor"], "colors": d["colors"]},
             "screen": d["screen"],
+            "updates": self.server.updates.state(),
             "savers": SAVERS,
             "presets": PRESETS,
             "decors": DECORS,
@@ -197,9 +205,10 @@ class Handler(BaseHTTPRequestHandler):
 class Server(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, port, engine):
+    def __init__(self, port, engine, updates):
         super().__init__(("127.0.0.1", port), Handler)
         self.engine = engine
+        self.updates = updates
 
     @property
     def url(self):

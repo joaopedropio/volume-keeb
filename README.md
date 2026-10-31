@@ -127,7 +127,7 @@ The RP2040 has a built-in bootloader that shows up as a USB drive, so flashing i
 
 Once it's in the case, BOOT is pressed with a pin through the hole marked **`B`** under the case (**`R`** is RESET). To re-flash later: hold B, tap R, release B.
 
-To update the firmware later on Linux, without buttons: download the new `volume-keeb.uf2` and run `~/volume-keeb/flash.sh ~/Downloads/volume-keeb.uf2` (after [Step 7](#step-7-set-up-the-computer-)). It tells the running knob to reboot into its bootloader and copies the file over.
+Later updates need no buttons: once the computer is set up ([Step 7](#step-7-set-up-the-computer-)), the settings page offers new firmware when a release has it and installs it with one click (see [Updates](#updates)). The pin is only needed if the knob ever stops starting at all.
 
 ## Step 4: Wire it up [🔼](#contents)
 
@@ -231,7 +231,7 @@ Download [`volume-keeb.exe`](https://github.com/joaopedropio/volume-keeb/release
 
 The `.exe` isn't signed, so the first time Windows SmartScreen says it "protected your PC": click **More info**, then **Run anyway**.
 
-The knob icon shows up in the tray; tick **Start with Windows** in its menu to have it run at login. To update, quit it from the tray icon and replace the `.exe` with the new one.
+The knob icon shows up in the tray; tick **Start with Windows** in its menu to have it run at login. When a new version is out, the tray menu and the settings page say so: quit it from the tray icon, replace the `.exe` with the new one (same place, so **Start with Windows** keeps working) and start it again.
 
 ## Settings page [🔼](#contents)
 
@@ -241,9 +241,16 @@ The knob icon shows up in the tray; tick **Start with Windows** in its menu to h
 
 Settings are saved on the computer (`~/.config/volume-keeb` or `%APPDATA%\volume-keeb`) and sent to the knob whenever it's plugged in, so a knob moved to another computer takes that computer's settings.
 
+### Updates
+
+The app checks [the releases](https://github.com/joaopedropio/volume-keeb/releases) every few hours. When there's a newer one, a banner on the settings page (and an item in the tray menu) says so, and the **Updates** section at the bottom of the page shows what to do:
+
+- **Knob firmware**: click **Update the knob**. The knob restarts in update mode, the app copies the new firmware onto it, and it comes back in about half a minute with your settings and fonts. Don't unplug it meanwhile.
+- **The app**: on Windows, download the new `volume-keeb.exe` from the link and swap it for the old one (see [Step 7](#windows)). On Linux, run `cd ~/volume-keeb && git pull && ./install.sh`.
+
 ## Using it [🔼](#contents)
 
-The knob has two screens:
+When it's plugged in, the knob shows **volume-keeb** and *waiting for the computer* while the host app finds it. Then it has two screens:
 
 - **Menu**: a list of apps, one per line: `Master` (your default output) plus every app that's playing sound right now, each followed by the song it's playing, if any. A small dot marks the app the App screen would go back to.
 - **App**: the app's name and volume (or `MUTE`) at the top, the media title (if any) in large text, crossing the screen from right to left, and a 30-segment volume bar along the bottom.

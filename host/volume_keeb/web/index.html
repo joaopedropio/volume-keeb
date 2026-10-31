@@ -188,6 +188,25 @@
   .msg.bad { color: var(--bad); }
   .msg.ok { color: var(--ok); }
 
+  /* updates */
+  .banner {
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--accent); border-radius: var(--radius);
+    padding: 12px 16px;
+  }
+  .banner[hidden] { display: none; }
+  .banner b { font-weight: 650; }
+  .banner a { margin-left: auto; color: var(--accent); font-weight: 600; text-decoration: none; }
+  .update-rows { display: grid; gap: 12px; }
+  .update-row {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 14px;
+    display: grid; gap: 8px;
+  }
+  .update-row .font-head span.new { color: var(--accent); font-weight: 600; }
+  .update-row p { margin: 0; font-size: 13px; color: var(--muted); }
+  .update-row code { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; font-size: 12px; color: var(--text); }
+  .update-row a.btn { text-decoration: none; display: inline-block; }
+
   @media (max-width: 640px) {
     header { padding: 12px 16px; }
     main { padding: 16px; gap: 16px; }
@@ -204,6 +223,11 @@
 </header>
 
 <main>
+  <div class="banner" id="update-banner" hidden>
+    <span></span>
+    <a href="#updates">See what to do</a>
+  </div>
+
   <section>
     <h2>Preview</h2>
     <p class="hint">Changes are sent to the knob as you make them. This is an approximation; the knob itself has the final word.</p>
@@ -241,6 +265,19 @@
     <h2>Fonts</h2>
     <p class="hint">Upload any TrueType or OpenType font. It's resized to fit each spot on the screen, converted on this computer and stored in the knob's flash, so it stays after a reboot. Characters outside basic ASCII (accents and so on) show as their plain letters.</p>
     <div class="fonts" id="fonts"></div>
+  </section>
+
+  <section id="updates">
+    <h2>Updates</h2>
+    <p class="hint">New versions come out on <a id="releases-link" href="https://github.com/joaopedropio/volume-keeb/releases" target="_blank" rel="noopener">GitHub</a>. This app checks every few hours.</p>
+    <div class="update-rows">
+      <div class="update-row" id="update-app"></div>
+      <div class="update-row" id="update-fw"></div>
+    </div>
+    <div class="row" style="margin-top: 12px">
+      <button class="btn" id="check-updates">Check now</button>
+      <span class="msg" id="checked-msg"></span>
+    </div>
   </section>
 </main>
 
@@ -777,6 +814,92 @@ async function resetFont(slot) {
   }
 }
 
+// ---- updates -----------------------------------------------------------------
+
+const JOB_TEXT = {
+  downloading: "Downloading the firmware…",
+  rebooting: "Restarting the knob in update mode…",
+  waiting: "Waiting for the knob's RPI-RP2 drive…",
+  copying: "Copying the firmware onto the knob…",
+  restarting: "Waiting for the knob to start again…",
+  done: "Done: the knob runs the new firmware.",
+};
+
+function el(tag, props = {}, ...kids) {
+  const e = Object.assign(document.createElement(tag), props);
+  e.append(...kids);
+  return e;
+}
+
+function head(title, value, isNew) {
+  return el("div", { className: "font-head" }, el("b", { textContent: title }),
+    el("span", { textContent: value, className: isNew ? "new" : "" }));
+}
+
+function renderUpdates(u) {
+  const latest = u.latest && u.latest.version;
+  const app = document.getElementById("update-app");
+  app.replaceChildren(head("App", `v${u.app_version}` + (u.app_update ? ` → v${latest} available` : latest ? " · up to date" : ""), u.app_update));
+  if (u.app_update) {
+    if (u.platform === "windows" && u.latest.exe) {
+      app.append(
+        el("p", { textContent: "Download the new volume-keeb.exe, quit this one from its tray icon (Quit), put the new file where the old one was and start it." }),
+        el("div", {}, el("a", { className: "btn primary", href: u.latest.exe, textContent: `Download volume-keeb.exe v${latest}` })));
+    } else if (u.repo_dir) {
+      const cmd = `cd "${u.repo_dir}" && git pull && ./install.sh`;
+      app.append(el("p", {}, "In a terminal: ", el("code", { textContent: cmd })));
+    } else {
+      app.append(el("p", {}, el("a", { href: u.latest.url, target: "_blank", textContent: "Get it from the release page" })));
+    }
+  }
+  if (u.latest) {
+    document.getElementById("releases-link").href = u.latest.url;
+  }
+
+  const fw = document.getElementById("update-fw");
+  const connected = state.connected;
+  const fwText = !connected ? "knob not connected" : u.firmware_version ? `v${u.firmware_version}` : "v0.1.0 or older";
+  fw.replaceChildren(head("Knob firmware", fwText + (u.firmware_update ? ` → v${latest} available` : connected && latest ? " · up to date" : ""), u.firmware_update));
+  const busy = !["idle", "done", "error"].includes(u.job.state);
+  if (connected && u.latest && u.latest.uf2) {
+    const b = el("button", {
+      className: "btn" + (u.firmware_update ? " primary" : ""),
+      textContent: u.firmware_update ? `Update the knob to v${latest}` : `Reinstall v${latest}`,
+      disabled: busy,
+    });
+    b.onclick = async () => {
+      b.disabled = true;
+      try { await api("POST", "/api/firmware/update"); } catch (e) { alertMsg(fw, e.message); }
+      poll();
+    };
+    fw.append(el("p", { textContent: "The knob restarts in update mode, the new firmware is copied onto it and it starts again, in about half a minute. Your colors, fonts and settings stay. Don't unplug it meanwhile." }), el("div", {}, b));
+  }
+  if (u.job.state !== "idle") {
+    fw.append(el("p", { className: "msg " + (u.job.state === "error" ? "bad" : u.job.state === "done" ? "ok" : ""),
+      textContent: u.job.state === "error" ? `Update failed: ${u.job.error}` : JOB_TEXT[u.job.state] || u.job.state }));
+  }
+
+  const checked = document.getElementById("checked-msg");
+  checked.className = "msg" + (u.error ? " bad" : "");
+  checked.textContent = u.error || (u.checked_at ? `Last checked ${new Date(u.checked_at * 1000).toLocaleString()}` : "Checking…");
+
+  const banner = document.getElementById("update-banner");
+  banner.hidden = !(u.app_update || u.firmware_update);
+  const what = u.app_update && u.firmware_update ? "the app and the knob's firmware" : u.app_update ? "the app" : "the knob's firmware";
+  banner.querySelector("span").replaceChildren(el("b", { textContent: `volume-keeb v${latest} is out` }), ` with updates for ${what}.`);
+}
+
+function alertMsg(box, text) {
+  box.append(el("p", { className: "msg bad", textContent: text }));
+}
+
+document.getElementById("check-updates").onclick = async e => {
+  e.target.disabled = true;
+  try { renderUpdates(await api("POST", "/api/updates/check")); }
+  catch (err) { document.getElementById("checked-msg").textContent = err.message; }
+  e.target.disabled = false;
+};
+
 // ---- status ------------------------------------------------------------------
 
 function setStatus(kind, text) {
@@ -799,6 +922,7 @@ async function poll() {
     state.fonts_supported = s.fonts_supported;
     showConnection(s);
     if (was !== s.connected) renderScreen();
+    renderUpdates(s.updates);
   } catch {
     setStatus("bad", "volume-keeb isn't running");
   }
@@ -824,6 +948,7 @@ document.getElementById("screen-pick").onclick = e => {
   showConnection(state);
   renderTheme();
   renderScreen();
+  renderUpdates(state.updates);
   renderFonts();
   await Promise.all(Object.keys(state.fonts).map(loadFontFace));
   await document.fonts.ready;

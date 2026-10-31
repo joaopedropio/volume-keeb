@@ -1,6 +1,6 @@
 """volume-keeb's host app: keeps the knob's per-app mixer in step with the
-computer and serves the settings page (theme, colors, fonts) on localhost,
-with a tray icon to open it.
+computer and serves the settings page (theme, colors, screensaver, fonts,
+updates) on localhost, with a tray icon to open it.
 
 Linux: pactl + MPRIS, /dev/hidraw. Windows: WASAPI + media sessions,
 hidapi. See host/requirements.txt.
@@ -20,6 +20,7 @@ from .config import Config
 from .engine import Engine
 from .knob import send_bootloader
 from .protocol import PRESETS
+from .updates import Updates
 from .web import Server
 
 
@@ -72,8 +73,9 @@ def main(argv=None):
         config.set_theme(dict(preset["colors"]), preset["decor"], args.theme)
 
     engine = Engine(config, load_audio())
+    updates = Updates(engine)
     try:
-        server = Server(args.port or config.data["port"], engine)
+        server = Server(args.port or config.data["port"], engine, updates)
     except OSError as e:
         if e.errno not in (errno.EADDRINUSE, getattr(errno, "WSAEADDRINUSE", None)):
             raise
@@ -85,6 +87,7 @@ def main(argv=None):
         return
     server.start()
     engine.start()
+    updates.start()
     if args.open:
         webbrowser.open(server.url)
 
@@ -93,7 +96,7 @@ def main(argv=None):
         from . import autostart
     if not args.no_tray:
         restart_when_session_appears()
-    if args.no_tray or not tray.run(server.url, autostart):
+    if args.no_tray or not tray.run(server.url, autostart, updates):
         try:
             threading.Event().wait()
         except KeyboardInterrupt:

@@ -57,6 +57,8 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 //                    the knob before the screensaver starts, data[4..5] =
 //                    seconds before the screen turns off (0 = never), data[6]
 //                    = 1 to start the screensaver right away (a preview).
+//   Host -> device, asked on every (re)connect:
+//     VERSION_QUERY_CMD replies VERSION_INFO_CMD.
 //   Host -> device, from `volume_sync.py --bootloader` (flash.sh):
 //     BOOTLOADER_CMD reboots into the RP2040's BOOTSEL bootloader, so the
 //                    board can be re-flashed without pressing BOOT/RESET.
@@ -67,6 +69,9 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 //     FONT_STATUS_CMD data[1] = slot, data[2] = FONT_OK / FONT_ERR_*
 //     FONT_INFO_CMD  data[1] = FONT_SLOTS, then each slot's CRC-32 (0 = the
 //                    built-in font) from data[2], 4 bytes apiece
+//   Device -> host, the reply to VERSION_QUERY_CMD:
+//     VERSION_INFO_CMD data[1..3] = major, minor, patch (the repo's VERSION
+//                    at build time). The v0.1.0 release's firmware doesn't answer.
 #define APP_BEGIN_CMD 0x60
 #define APP_ENTRY_CMD 0x61
 #define APP_END_CMD 0x62
@@ -80,9 +85,18 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 #define FONT_CLEAR_CMD 0x69
 #define FONT_QUERY_CMD 0x6A
 #define SCREEN_CMD 0x6B
+#define VERSION_QUERY_CMD 0x6C
 #define CTRL_CMD 0x70
 #define FONT_STATUS_CMD 0x71
 #define FONT_INFO_CMD 0x72
+#define VERSION_INFO_CMD 0x73
+
+// Set from the repo's VERSION by rules.mk.
+#ifndef FW_VERSION_MAJOR
+#    define FW_VERSION_MAJOR 0
+#    define FW_VERSION_MINOR 0
+#    define FW_VERSION_PATCH 0
+#endif
 
 #define ACTION_SET_VOLUME 0
 #define ACTION_TOGGLE_MUTE 1
@@ -912,6 +926,11 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
         }
         case BOOTLOADER_CMD: {
             reset_keyboard();
+            break;
+        }
+        case VERSION_QUERY_CMD: {
+            uint8_t reply[RAW_EPSIZE] = {VERSION_INFO_CMD, FW_VERSION_MAJOR, FW_VERSION_MINOR, FW_VERSION_PATCH};
+            raw_hid_send(reply, sizeof(reply));
             break;
         }
         case SCREEN_CMD: {
