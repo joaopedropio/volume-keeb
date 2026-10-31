@@ -117,6 +117,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 #define TITLE_MAX 87
 #define HOST_STALE_MS 5000
 #define HOST_WAIT_MS 5000 // loading screen at boot: after this, assume there's no host app
+#define LOADING_MIN_MS 2000 // and it stays up at least this long, even if the host app is quick
 
 #define SAVER_AFTER_MS_DEFAULT 30000
 #define HOLD_MS 500
@@ -673,7 +674,8 @@ static void render_menu_screen(void) {
 
 // ---------------------------------------------------------------------
 // Loading: right after boot, until the host app sends its first app list
-// or HOST_WAIT_MS passes. A bar fills over that time.
+// (but at least LOADING_MIN_MS) or HOST_WAIT_MS passes. A bar fills over
+// that time, or by LOADING_MIN_MS once the host app has answered.
 // ---------------------------------------------------------------------
 #define LOADING_FRAME_MS 100
 #define LOADING_BAR_W 200
@@ -696,7 +698,8 @@ static void render_loading_screen(void) {
     qp_drawtext_recolor(lcd, (LCD_WIDTH - mw) / 2, 74, font_ui, msg, CT(dim), CT(bg));
 
     uint16_t x0 = (LCD_WIDTH - LOADING_BAR_W) / 2, y0 = 100;
-    uint16_t fill = elapsed >= HOST_WAIT_MS ? LOADING_BAR_W : elapsed * LOADING_BAR_W / HOST_WAIT_MS;
+    uint32_t until = host_seen ? LOADING_MIN_MS : HOST_WAIT_MS;
+    uint16_t fill  = elapsed >= until ? LOADING_BAR_W : elapsed * LOADING_BAR_W / until;
     qp_rect(lcd, x0, y0, x0 + LOADING_BAR_W - 1, y0 + LOADING_BAR_H - 1, CT(dim), false);
     if (fill > 2) qp_rect(lcd, x0 + 1, y0 + 1, x0 + fill - 2, y0 + LOADING_BAR_H - 2, CT(accent), true);
 }
@@ -1056,7 +1059,7 @@ static void apply_app_snapshot(void) {
     }
     host_seen      = true;
     host_last_seen = timer_read32();
-    if (screen == SCREEN_LOADING || screen == SCREEN_HOME || screen == SCREEN_SETTINGS) goto_menu();
+    if ((screen == SCREEN_LOADING && timer_elapsed32(boot_at) >= LOADING_MIN_MS) || screen == SCREEN_HOME || screen == SCREEN_SETTINGS) goto_menu();
     if (changed) {
         dirty_menu         = true;
         dirty_header         = true;
@@ -2051,6 +2054,7 @@ void housekeeping_task_user(void) {
         menu_cursor = 0;
         goto_home();
     }
+    if (screen == SCREEN_LOADING && host_seen && timer_elapsed32(boot_at) >= LOADING_MIN_MS) goto_menu();
     if (screen == SCREEN_LOADING && timer_elapsed32(boot_at) > HOST_WAIT_MS) goto_home();
 
     if ((screen == SCREEN_HOME || screen == SCREEN_SETTINGS) && click_down && !click_hold_fired && timer_elapsed32(click_press_start) >= HOLD_MS) {
