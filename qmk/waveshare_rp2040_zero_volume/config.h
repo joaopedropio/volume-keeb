@@ -68,3 +68,7 @@
 // the last sectors.
 #define FONT_STORE_OFFSET 0x100000
 #define FONT_STORE_SLOT_SIZE 0x10000
+// And right after them, the screensaver animations made from GIFs (ANIM_SLOTS
+// in font_store.h), up to 0x1F0000: the EEPROM takes the last 8 kB.
+#define ANIM_STORE_OFFSET 0x130000
+#define ANIM_STORE_SLOT_SIZE 0x40000

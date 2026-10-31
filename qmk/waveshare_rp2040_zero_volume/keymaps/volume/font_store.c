@@ -1,12 +1,12 @@
 // Copyright 2026 QMK
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// The slots live in a reserved stretch of the RP2040's flash (FONT_STORE_*
-// in config.h), well past the firmware and clear of the wear-leveled EEPROM
+// The slots live in reserved stretches of the RP2040's flash (FONT_STORE_*
+// and ANIM_STORE_* in config.h), well past the firmware and clear of the wear-leveled EEPROM
 // at the very end. A UF2 only rewrites the blocks it carries, so flashing new
 // firmware leaves them alone.
 //
-// Each slot is a header page followed by the QFF file. The header is written
+// Each slot is a header page followed by the file. The header is written
 // last, after the whole file checked out against the host's CRC, so a slot
 // whose upload was cut short reads as empty, never as half a font.
 #include <string.h>
@@ -16,12 +16,17 @@
 #include "font_store.h"
 
 #define SLOT_MAGIC 0x3146564B // "KVF1"
-#define SLOT_BASE(slot) (FONT_STORE_OFFSET + (uint32_t)(slot) * FONT_STORE_SLOT_SIZE)
+#define SLOT_BASE(slot) ((slot) < ANIM_SLOT0 ? FONT_STORE_OFFSET + (uint32_t)(slot) * FONT_STORE_SLOT_SIZE : ANIM_STORE_OFFSET + (uint32_t)((slot) - ANIM_SLOT0) * ANIM_STORE_SLOT_SIZE)
+#define SLOT_SIZE(slot) ((slot) < ANIM_SLOT0 ? FONT_STORE_SLOT_SIZE : ANIM_STORE_SLOT_SIZE)
 #define DATA_OFFSET FLASH_PAGE_SIZE
-#define DATA_MAX (FONT_STORE_SLOT_SIZE - DATA_OFFSET)
+#define DATA_MAX(slot) (SLOT_SIZE(slot) - DATA_OFFSET)
 
 _Static_assert(FONT_STORE_OFFSET % FLASH_SECTOR_SIZE == 0, "font store must start on a sector");
 _Static_assert(FONT_STORE_SLOT_SIZE % FLASH_SECTOR_SIZE == 0, "font slots must be whole sectors");
+_Static_assert(ANIM_STORE_OFFSET % FLASH_SECTOR_SIZE == 0, "animation store must start on a sector");
+_Static_assert(ANIM_STORE_SLOT_SIZE % FLASH_SECTOR_SIZE == 0, "animation slots must be whole sectors");
+_Static_assert(FONT_STORE_OFFSET + FONT_SLOTS * FONT_STORE_SLOT_SIZE <= ANIM_STORE_OFFSET, "font and animation slots overlap");
+_Static_assert(ANIM_STORE_OFFSET + ANIM_SLOTS * ANIM_STORE_SLOT_SIZE <= 0x200000 - 8192, "animation slots run into the EEPROM");
 
 typedef struct {
     uint32_t magic;
@@ -52,9 +57,9 @@ static const uint8_t *slot_ptr(uint8_t slot) {
 }
 
 static const slot_header_t *valid_header(uint8_t slot) {
-    if (slot >= FONT_SLOTS || (upload.active && upload.slot == slot)) return NULL;
+    if (slot >= STORE_SLOTS || (upload.active && upload.slot == slot)) return NULL;
     const slot_header_t *h = (const slot_header_t *)slot_ptr(slot);
-    if (h->magic != SLOT_MAGIC || h->length == 0 || h->length > DATA_MAX) return NULL;
+    if (h->magic != SLOT_MAGIC || h->length == 0 || h->length > DATA_MAX(slot)) return NULL;
     if (crc32_update(0, slot_ptr(slot) + DATA_OFFSET, h->length) != h->crc) return NULL;
     return h;
 }
@@ -81,6 +86,11 @@ const uint8_t *font_store_font(uint8_t slot) {
     return valid_header(slot) ? slot_ptr(slot) + DATA_OFFSET : NULL;
 }
 
+uint32_t font_store_length(uint8_t slot) {
+    const slot_header_t *h = valid_header(slot);
+    return h ? h->length : 0;
+}
+
 uint32_t font_store_crc(uint8_t slot) {
     const slot_header_t *h = valid_header(slot);
     return h ? h->crc : 0;
@@ -88,8 +98,8 @@ uint32_t font_store_crc(uint8_t slot) {
 
 uint8_t font_store_begin(uint8_t slot, uint32_t length, uint32_t crc) {
     upload.active = false;
-    if (slot >= FONT_SLOTS) return FONT_ERR_SLOT;
-    if (length == 0 || length > DATA_MAX) return FONT_ERR_SIZE;
+    if (slot >= STORE_SLOTS) return FONT_ERR_SLOT;
+    if (length == 0 || length > DATA_MAX(slot)) return FONT_ERR_SIZE;
     uint32_t used = DATA_OFFSET + length;
     erase(SLOT_BASE(slot), (used + FLASH_SECTOR_SIZE - 1) / FLASH_SECTOR_SIZE * FLASH_SECTOR_SIZE);
     upload.active   = true;
@@ -142,7 +152,7 @@ uint8_t font_store_end(uint8_t slot) {
 }
 
 void font_store_clear(uint8_t slot) {
-    if (slot >= FONT_SLOTS) return;
+    if (slot >= STORE_SLOTS) return;
     if (upload.active && upload.slot == slot) upload.active = false;
     if (((const slot_header_t *)slot_ptr(slot))->magic == 0xFFFFFFFF) return; // already empty, spare the flash
     erase(SLOT_BASE(slot), FLASH_SECTOR_SIZE);

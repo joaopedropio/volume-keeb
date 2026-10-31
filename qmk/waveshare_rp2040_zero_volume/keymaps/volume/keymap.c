@@ -42,14 +42,18 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 //     THEME_CMD      data[1] = theme id, copies `themes[]` entry as the palette
 //     PALETTE_CMD    data[1..18] = bg, well, fg, dim, accent, mute as H,S,V
 //                    triples (theme_t's field order), data[19] = decor_t
-//   Host -> device, one font upload into a font_store.h slot (0 = font_ui,
-//   1 = font_big, 2 = font_list); multi-byte numbers are little-endian:
-//     FONT_BEGIN_CMD data[1] = slot, data[2..5] = QFF length, data[6..9] =
-//                    its CRC-32. Erases the slot (up to ~1 s); replies.
+//   Host -> device, one file upload into a font_store.h slot (0 = font_ui,
+//   1 = font_big, 2 = font_list, each a QFF; 3..5 = the gif screensavers'
+//   animations, see "gif" below); multi-byte numbers are little-endian:
+//     FONT_BEGIN_CMD data[1] = slot, data[2..5] = file length, data[6..9] =
+//                    its CRC-32. Erases what the file needs of the slot
+//                    (~1 s for a font, up to ~4 s for an animation); replies.
 //     FONT_DATA_CMD  data[1] = slot, data[2..4] = offset, data[5] = n,
 //                    data[6..] = n bytes. In order, no reply.
-//     FONT_END_CMD   data[1] = slot. Checks the CRC and loads it; replies.
-//     FONT_CLEAR_CMD data[1] = slot. Back to the built-in font; replies.
+//     FONT_END_CMD   data[1] = slot. Checks the CRC and the file and loads
+//                    it; replies.
+//     FONT_CLEAR_CMD data[1] = slot. Empties it (a font slot goes back to the
+//                    built-in font); replies.
 //     FONT_QUERY_CMD replies FONT_INFO_CMD.
 //   Host -> device, the screen's idle behaviour, whenever it changes and once
 //   right after the host (re)connects:
@@ -71,8 +75,9 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 //                    data[3]%, 1 = toggle mute, 2 = play/pause), data[3] = value
 //   Device -> host, replies to the font commands:
 //     FONT_STATUS_CMD data[1] = slot, data[2] = FONT_OK / FONT_ERR_*
-//     FONT_INFO_CMD  data[1] = FONT_SLOTS, then each slot's CRC-32 (0 = the
-//                    built-in font) from data[2], 4 bytes apiece
+//     FONT_INFO_CMD  data[1] = STORE_SLOTS, then each slot's CRC-32 (0 =
+//                    empty) from data[2], 4 bytes apiece. Firmware before
+//                    the animations has 3 slots.
 //   Device -> host, the reply to VERSION_QUERY_CMD:
 //     VERSION_INFO_CMD data[1..3] = major, minor, patch (the repo's VERSION
 //                    at build time). The v0.1.0 release's firmware doesn't answer.
@@ -261,7 +266,8 @@ typedef enum { MENU_CAROUSEL, MENU_LIST, MENU_MIXER, MENU_COUNT } menu_layout_t;
 static uint8_t menu_layout = MENU_CAROUSEL;
 static bool    mixer_grab;
 
-typedef enum { SAVER_NONE, SAVER_DRIVE, SAVER_STARS, SAVER_RAIN, SAVER_PLASMA, SAVER_BOUNCE, SAVER_COUNT } saver_t;
+typedef enum { SAVER_NONE, SAVER_DRIVE, SAVER_STARS, SAVER_RAIN, SAVER_PLASMA, SAVER_BOUNCE, SAVER_GIF1, SAVER_GIF2, SAVER_GIF3, SAVER_COUNT } saver_t;
+_Static_assert(SAVER_COUNT - SAVER_GIF1 == ANIM_SLOTS, "a gif saver per animation slot");
 static uint8_t  saver_kind     = SAVER_DRIVE;
 static uint32_t saver_after_ms = SAVER_AFTER_MS_DEFAULT;
 static uint32_t off_after_ms   = 0; // never
@@ -276,6 +282,7 @@ static void     restore_ui(void);
 static void     set_theme(const theme_t *next);
 static void     save_settings(void);
 static bool     changed_here; // settings changed on the knob that no host has seen yet
+static bool     anim_ok[ANIM_SLOTS]; // which animation slots hold a usable animation
 
 // Everything is drawn into `lcd`, a full-screen RGB565 framebuffer, and only
 // the rectangle of pixels that actually changed is sent to `panel` (see
@@ -1348,7 +1355,7 @@ static uint8_t settings_cursor;
 static bool    settings_editing;
 
 static const char *const theme_names[THEME_COUNT] = {"terminal", "neobrutal", "winamp", "neon", "studio", "hifi", "console"};
-static const char *const saver_names[SAVER_COUNT] = {"none", "drive", "stars", "rain", "plasma", "bounce"};
+static const char *const saver_names[SAVER_COUNT] = {"none", "drive", "stars", "rain", "plasma", "bounce", "gif 1", "gif 2", "gif 3"};
 static const char *const menu_names[MENU_COUNT]    = {"carousel", "list", "mixer"};
 static const char *const settings_labels[SET_COUNT] = {"Theme", "Menu", "Screensaver", "Start after", "Screen off", "Exit"};
 // The choices offered on the knob, in seconds (the settings page has the same).
@@ -1441,7 +1448,9 @@ static void settings_change(bool up) {
             menu_layout = (menu_layout + (up ? 1 : MENU_COUNT - 1)) % MENU_COUNT;
             break;
         case SET_SAVER:
-            saver_kind = (saver_kind + (up ? 1 : SAVER_COUNT - 1)) % SAVER_COUNT;
+            do { // past the gif savers with nothing uploaded
+                saver_kind = (saver_kind + (up ? 1 : SAVER_COUNT - 1)) % SAVER_COUNT;
+            } while (saver_kind >= SAVER_GIF1 && !anim_ok[saver_kind - SAVER_GIF1]);
             break;
         case SET_SAVER_AFTER:
             saver_after_ms = step_choice(saver_after_steps, sizeof(saver_after_steps) / sizeof(saver_after_steps[0]), saver_after_ms / 1000, up) * 1000UL;
@@ -1806,19 +1815,99 @@ static uint32_t read_le(const uint8_t *p, uint8_t n) {
     return v;
 }
 
+// ---- the gif screensavers' animations ----
+// The host's GIF page turns a GIF into this, multi-byte numbers little-endian:
+//   0   "KVA1"
+//   4   width, height (u16 each) in art pixels, each drawn scale x scale on
+//       the panel, centered; one wider or taller than the panel is cut at the
+//       right or bottom instead
+//   8   scale (u8), 9 colors - 1 (u8), 10 frame count (u16), 12 reserved (4)
+//   16  the palette, a u16 per color in panel byte order (as lcd_fb holds it)
+//   then each frame: its delay in ms (u16), its data's length (u32) and the
+//   data, every art pixel row by row as runs, n being the byte's low bits:
+//     0x00-0x7F  n+1 pixels of the color whose index is the next byte
+//     0x80-0xBF  n+1 pixels left as the previous frame had them
+//     0xC0-0xFF  n+1 pixels, a color index byte each
+//   After the last frame it starts over from the first, so that one doesn't
+//   leave anything as it was.
+#define ANIM_HEADER 16
+
+typedef struct {
+    const uint8_t *data;
+    uint16_t       w, h, colors, frames;
+    uint8_t        scale;
+    uint32_t       first; // the first frame's offset
+} anim_t;
+
+// Checks a whole animation, so drawing it later needs no checks.
+static bool anim_parse(const uint8_t *d, uint32_t len, anim_t *a) {
+    if (!d || len < ANIM_HEADER || memcmp(d, "KVA1", 4) != 0) return false;
+    a->data   = d;
+    a->w      = read_le(&d[4], 2);
+    a->h      = read_le(&d[6], 2);
+    a->scale  = d[8];
+    a->colors = d[9] + 1;
+    a->frames = read_le(&d[10], 2);
+    a->first  = ANIM_HEADER + 2 * a->colors;
+    if (!a->w || !a->h || !a->scale || a->w > LCD_WIDTH || a->h > LCD_HEIGHT || !a->frames || a->first > len) return false;
+    uint32_t pos = a->first, total = (uint32_t)a->w * a->h;
+    for (uint16_t f = 0; f < a->frames; f++) {
+        if (len - pos < 6) return false;
+        uint32_t n = read_le(&d[pos + 2], 4);
+        pos += 6;
+        if (n > len - pos) return false;
+        const uint8_t *p = &d[pos], *end = p + n;
+        uint32_t       px = 0;
+        while (p < end) {
+            uint8_t  b = *p++;
+            uint32_t k = (b < 0x80 ? b & 0x7F : b & 0x3F) + 1;
+            if (b < 0x80) {
+                if (p >= end || *p++ >= a->colors) return false;
+            } else if (b >= 0xC0) {
+                if (k > (uint32_t)(end - p)) return false;
+                for (uint32_t i = 0; i < k; i++)
+                    if (*p++ >= a->colors) return false;
+            }
+            px += k;
+            if (px > total) return false;
+        }
+        if (px != total) return false;
+        pos += n;
+    }
+    return true;
+}
+
+static void check_anim(uint8_t i) {
+    anim_t a;
+    anim_ok[i] = anim_parse(font_store_font(ANIM_SLOT0 + i), font_store_length(ANIM_SLOT0 + i), &a);
+}
+
+// A gif saver that's on screen starts over when its slot changes (or shows
+// the drive while the slot is empty).
+static void anim_slot_changed(uint8_t i) {
+    check_anim(i);
+    if (saver_on && saver_kind == SAVER_GIF1 + i) start_saver();
+}
+
 static void handle_font_cmd(uint8_t *data, uint8_t length) {
     uint8_t slot = data[1];
-    if (data[0] != FONT_QUERY_CMD && slot >= FONT_SLOTS) {
+    if (data[0] != FONT_QUERY_CMD && slot >= STORE_SLOTS) {
         if (data[0] != FONT_DATA_CMD) send_font_status(slot, FONT_ERR_SLOT);
         return;
     }
+    bool    font = slot < FONT_SLOTS;
+    uint8_t anim = slot - ANIM_SLOT0;
     switch (data[0]) {
         case FONT_BEGIN_CMD: {
             if (length < 10) return;
-            // The font being replaced lives in the slot about to be erased.
-            qp_close_font(*font_handles[slot]);
-            *font_handles[slot] = qp_load_font_mem(font_builtin[slot]);
-            send_font_status(slot, font_store_begin(slot, read_le(&data[2], 4), read_le(&data[6], 4)));
+            if (font) {
+                // The font being replaced lives in the slot about to be erased.
+                qp_close_font(*font_handles[slot]);
+                *font_handles[slot] = qp_load_font_mem(font_builtin[slot]);
+            }
+            uint8_t status = font_store_begin(slot, read_le(&data[2], 4), read_le(&data[6], 4));
+            if (!font) anim_slot_changed(anim); // reads as empty until the upload ends
+            send_font_status(slot, status);
             break;
         }
         case FONT_DATA_CMD: {
@@ -1830,23 +1919,37 @@ static void handle_font_cmd(uint8_t *data, uint8_t length) {
         }
         case FONT_END_CMD: {
             uint8_t status = font_store_end(slot);
-            if (status == FONT_OK && !load_font(slot)) {
-                font_store_clear(slot);
-                status = FONT_ERR_FONT;
+            if (font) {
+                if (status == FONT_OK && !load_font(slot)) {
+                    font_store_clear(slot);
+                    status = FONT_ERR_FONT;
+                }
+                if (status != FONT_OK) load_font(slot);
+            } else {
+                check_anim(anim);
+                if (status == FONT_OK && !anim_ok[anim]) {
+                    font_store_clear(slot);
+                    status = FONT_ERR_FONT;
+                }
+                anim_slot_changed(anim);
             }
-            if (status != FONT_OK) load_font(slot);
             send_font_status(slot, status);
             break;
         }
         case FONT_CLEAR_CMD: {
             font_store_clear(slot);
-            load_font(slot);
+            if (font) {
+                load_font(slot);
+            } else {
+                anim_slot_changed(anim);
+            }
             send_font_status(slot, FONT_OK);
             break;
         }
         case FONT_QUERY_CMD: {
-            uint8_t buf[RAW_EPSIZE] = {FONT_INFO_CMD, FONT_SLOTS};
-            for (uint8_t i = 0; i < FONT_SLOTS; i++) {
+            uint8_t buf[RAW_EPSIZE] = {FONT_INFO_CMD, STORE_SLOTS};
+            _Static_assert(2 + 4 * STORE_SLOTS <= RAW_EPSIZE, "FONT_INFO_CMD outgrew a report");
+            for (uint8_t i = 0; i < STORE_SLOTS; i++) {
                 uint32_t crc = font_store_crc(i);
                 for (uint8_t b = 0; b < 4; b++) buf[2 + i * 4 + b] = crc >> (8 * b);
             }
@@ -2005,6 +2108,7 @@ void keyboard_post_init_user(void) {
     lcd_clear_region(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
 
     for (uint8_t slot = 0; slot < FONT_SLOTS; slot++) load_font(slot);
+    for (uint8_t i = 0; i < ANIM_SLOTS; i++) check_anim(i);
 
     ticker_surface = qp_make_rgb565_surface(TICKER_SURF_W, BIG_CHAR_H, ticker_buf);
     qp_init(ticker_surface, QP_ROTATION_0);
@@ -2070,6 +2174,8 @@ static void flush_screen(void) {
 //   SAVER_PLASMA  a slowly churning plasma cycling through the theme's colors.
 //   SAVER_BOUNCE  what's playing (or "volume-keeb") bouncing off the edges,
 //                 changing color at each bounce.
+//   SAVER_GIF1-3  an animation uploaded from the host's GIF page (an empty
+//                 slot shows the drive instead).
 // All but the drive take their colors from the theme. Only the knob stops a
 // screensaver (see wake_ui()); host updates don't.
 //
@@ -2770,15 +2876,101 @@ static void render_bounce(void) {
     flush_screen();
 }
 
+// ---- gif: an animation from an ANIM_SLOTS slot (format above anim_parse()) ----
+#define ANIM_TICK_MS 5      // how often it checks whether the next frame is due
+#define ANIM_MIN_DELAY 20   // browsers play shorter GIF delays slower too
+
+static anim_t   anim;
+static uint32_t anim_pos;     // the next frame's offset
+static uint16_t anim_frame;   // and its number
+static uint32_t anim_due;     // when it goes up (saver time)
+static int16_t  anim_x0, anim_y0;
+
+// The saver that actually runs: an empty gif slot's is the drive.
+static uint8_t saver_shown(void) {
+    return saver_kind >= SAVER_GIF1 && !anim_ok[saver_kind - SAVER_GIF1] ? SAVER_DRIVE : saver_kind;
+}
+
+static void start_anim(void) {
+    uint8_t slot = ANIM_SLOT0 + saver_kind - SAVER_GIF1;
+    anim_parse(font_store_font(slot), font_store_length(slot), &anim); // anim_ok[] says it parses
+    int32_t w = (int32_t)anim.w * anim.scale, h = (int32_t)anim.h * anim.scale;
+    anim_x0    = w < LCD_WIDTH ? (LCD_WIDTH - w) / 2 : 0;
+    anim_y0    = h < LCD_HEIGHT ? (LCD_HEIGHT - h) / 2 : 0;
+    anim_pos   = anim.first;
+    anim_frame = 0;
+    anim_due   = 0;
+    fill_fb(0);
+    saver_send(0);
+}
+
+static void anim_put(uint16_t x, uint16_t y, uint16_t c) {
+    int32_t sx = anim_x0 + (int32_t)x * anim.scale, sy = anim_y0 + (int32_t)y * anim.scale;
+    for (int32_t r = sy; r < sy + anim.scale && r < LCD_HEIGHT; r++) {
+        uint16_t *row = &lcd_fb[r * LCD_WIDTH];
+        for (int32_t col = sx; col < sx + anim.scale && col < LCD_WIDTH; col++) row[col] = c;
+    }
+}
+
+static void render_anim(uint32_t t) {
+    if (t < anim_due || (anim.frames == 1 && anim_due)) return;
+    const uint8_t *d = anim.data, *pal = &d[ANIM_HEADER];
+    uint16_t       delay = read_le(&d[anim_pos], 2);
+    uint32_t       n     = read_le(&d[anim_pos + 2], 4);
+    const uint8_t *p = &d[anim_pos + 6], *end = p + n;
+    uint16_t       x = 0, y = 0, w = anim.w;
+    int32_t        top = -1, bottom = -1; // art rows that changed
+    while (p < end) {
+        uint8_t b = *p++;
+        uint8_t k = (b < 0x80 ? b & 0x7F : b & 0x3F) + 1;
+        if (b >= 0x80 && b < 0xC0) {
+            x += k;
+            while (x >= w) {
+                x -= w;
+                y++;
+            }
+            continue;
+        }
+        if (top < 0) top = y;
+        uint8_t c = b < 0x80 ? *p++ : 0;
+        while (k--) {
+            if (b >= 0xC0) c = *p++;
+            anim_put(x, y, pal[2 * c] | pal[2 * c + 1] << 8);
+            bottom = y;
+            if (++x == w) {
+                x = 0;
+                y++;
+            }
+        }
+    }
+    anim_pos += 6 + n;
+    if (++anim_frame == anim.frames) {
+        anim_frame = 0;
+        anim_pos   = anim.first;
+    }
+    // Keep to the GIF's pace, unless the panel couldn't keep up.
+    uint32_t next = anim_due + (delay < ANIM_MIN_DELAY ? ANIM_MIN_DELAY : delay);
+    anim_due      = next > t ? next : t + 1;
+    if (top < 0) return;
+    int32_t y0 = anim_y0 + top * anim.scale, y1 = anim_y0 + (bottom + 1) * anim.scale - 1;
+    if (y0 >= LCD_HEIGHT) return;
+    if (y1 >= LCD_HEIGHT) y1 = LCD_HEIGHT - 1;
+    qp_viewport(panel, 0, y0, LCD_WIDTH - 1, y1);
+    qp_pixdata(panel, &lcd_fb[y0 * LCD_WIDTH], (uint32_t)(y1 - y0 + 1) * LCD_WIDTH);
+}
+
 // ----
 
 static void render_saver_frame(void) {
     uint32_t t = timer_elapsed32(saver_start);
-    switch (saver_kind) {
+    switch (saver_shown()) {
         case SAVER_STARS: render_stars(t); break;
         case SAVER_RAIN: render_rain(); break;
         case SAVER_PLASMA: render_plasma(t); break;
         case SAVER_BOUNCE: render_bounce(); break;
+        case SAVER_GIF1:
+        case SAVER_GIF2:
+        case SAVER_GIF3: render_anim(t); break;
         default: render_drive(t); break;
     }
     saver_last_t = t;
@@ -2790,11 +2982,14 @@ static void start_saver(void) {
     saver_last_t   = 0;
     saver_seed     = saver_start * 2654435761u + 1;
     saver_prev_top = 0; // the drive's first frame goes out whole
-    switch (saver_kind) {
+    switch (saver_shown()) {
         case SAVER_STARS: start_stars(); break;
         case SAVER_RAIN: start_rain(); break;
         case SAVER_PLASMA: start_plasma(); break;
         case SAVER_BOUNCE: start_bounce(); break;
+        case SAVER_GIF1:
+        case SAVER_GIF2:
+        case SAVER_GIF3: start_anim(); break;
     }
     render_saver_frame();
     saver_frame_time = timer_read32();
@@ -2869,7 +3064,7 @@ void housekeeping_task_user(void) {
         start_saver();
     }
     if (saver_on) {
-        if (timer_elapsed32(saver_frame_time) >= SAVER_FRAME_MS) {
+        if (timer_elapsed32(saver_frame_time) >= (saver_shown() >= SAVER_GIF1 ? ANIM_TICK_MS : SAVER_FRAME_MS)) {
             saver_frame_time = timer_read32();
             render_saver_frame();
         }

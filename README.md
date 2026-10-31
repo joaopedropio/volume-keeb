@@ -33,7 +33,7 @@ This README is a step-by-step guide to building your own. If you want to change 
 - **Media info**: the title of what's playing (from MPRIS on Linux, the media overlay's sessions on Windows: Spotify, browsers, most media players) shown large on the screen.
 - **Play/pause and mute** from the knob.
 - **Themes, colors and fonts from a settings page**: seven preset themes, `neon` (synthwave), `terminal` (green phosphor), `neobrutal` (cream, black and orange, hard shadows), `winamp` (the classic Winamp skin), `studio` (a volume dial), `hifi` (an analog VU meter) and `console` (a mixing desk), any color you like on top, and your own TrueType/OpenType fonts. The page runs on your computer and opens from a tray icon, like Jellyfin's.
-- **Screensavers**: after a while without touching the knob (30 s by default), the screen plays one of five animations: a synthwave drive (a car on a road through a striped sea, palm trees going by, a neon city under the stars), a flight through the stars, Matrix-style rain, a plasma in your theme's colors, or what's playing bouncing around. You can turn the screensaver off, and have the screen go dark after a set time. Turning or pressing the knob brings the UI back; that first touch does nothing else. The screen also goes dark while the computer is suspended.
+- **Screensavers**: after a while without touching the knob (30 s by default), the screen plays one of five animations: a synthwave drive (a car on a road through a striped sea, palm trees going by, a neon city under the stars), a flight through the stars, Matrix-style rain, a plasma in your theme's colors, or what's playing bouncing around. Or your own: turn up to three GIFs into screensavers on the settings page's GIF page (made for 8-bit/pixel-art GIFs: it shrinks them back to their own pixels and crops them to the screen). You can turn the screensaver off, and have the screen go dark after a set time. Turning or pressing the knob brings the UI back; that first touch does nothing else. The screen also goes dark while the computer is suspended.
 - **Wakes the computer** from suspend.
 - **Linux and Windows.**
 - **No drivers**: it's a plain USB HID device.
@@ -237,6 +237,7 @@ The knob icon shows up in the tray; tick **Start with Windows** in its menu to h
 
 - **Theme**: pick a preset, then change any of its six colors (background, panel, text, secondary, accent, muted) or its style (flat, boxed, bevel, neon, dial, VU meter, mixer), and the menu's layout (carousel, list or mixer, see [Using it](#using-it-)). Changes show on the knob as you make them.
 - **Screen**: pick a screensaver (or none), how long the knob sits untouched before it starts, and whether the screen turns off after a while (never, by default). **Show on the knob** starts it right away so you can see it.
+- **GIF screensavers** (the **GIF page** link in Screen, or `http://localhost:8137/gif`): paste a link to a GIF (a Giphy or Tenor page works too) or drop a file. The page finds how big one "8-bit" pixel is and shrinks the GIF back to one pixel per pixel; check it with the grid and the Source/Result switch, and fix the pixel size and offset by hand if it guessed wrong. Then pick how big the pixels show on the knob and drag the frame over the part of the image the screen should show. **Send to the knob** stores it in one of three slots (256 kB each, the page says how much it takes; use fewer frames, colors or a bigger scale if it doesn't fit) and makes it the screensaver.
 - **Fonts**: the header, the song title and the app names in the menu and the settings each take their own font. Choose a `.ttf`/`.otf` file and a bit depth (1-bit for pixel fonts, 2- or 4-bit for smooth ones), check the preview and upload it. The app sizes it to fit, converts it and stores it in the knob's flash, where it stays across reboots and firmware updates. **Use built-in** goes back to the original font. Only basic ASCII is shown; accented letters lose their accents.
 
 Settings are saved on the computer (`~/.config/volume-keeb` or `%APPDATA%\volume-keeb`) and sent to the knob whenever it's plugged in, so a knob moved to another computer takes that computer's settings.
@@ -285,7 +286,7 @@ The screensaver is the home screen (with **none** picked, a screen with the name
 |---|---|
 | Theme | The seven presets |
 | Menu | carousel, list, mixer |
-| Screensaver | none, drive, stars, rain, plasma, bounce |
+| Screensaver | none, drive, stars, rain, plasma, bounce, and gif 1–3 for the slots that hold a GIF |
 | Start after | 15 s to 1 h (also how long the settings stay open untouched) |
 | Screen off | never, 1 min to 4 h |
 

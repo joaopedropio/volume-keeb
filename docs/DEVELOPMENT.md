@@ -139,7 +139,7 @@ All in `keymaps/volume/keymap.c`:
 | `VOLUME_STEP` | `5` | Percent per encoder detent. |
 | `HOLD_MS` | `500` | Click-and-hold time for mute. |
 | `DOUBLE_CLICK_MS` | `300` | Window for a double-click (play/pause). |
-| `SAVER_AFTER_MS_DEFAULT` | `30000` | Time without knob input (host updates don't count; a host wakeup restarts it) before the screensaver starts, until a host sends its own setting with `SCREEN_CMD`. The settings page also picks the screensaver (`saver_t`: none, drive, stars, rain, plasma, bounce) and a time after which the backlight goes off (default never). Every `SAVER_FRAME_MS` the drive, stars, rain and plasma draw straight into the framebuffer and send it to the panel (the drive only from the horizon or the tallest palm down); the bounce moves its text through the framebuffer like the UI does. All but the drive take their colors from the theme. The first turn or click after a screensaver or a dark screen only wakes it. Quantum Painter's own timeout is disabled in `config.h` (`QUANTUM_PAINTER_DISPLAY_TIMEOUT 0`): it sends DISPOFF, which turns the lit NV3007 white and fades it out slowly, so the screen goes dark by painting black and dropping the backlight. |
+| `SAVER_AFTER_MS_DEFAULT` | `30000` | Time without knob input (host updates don't count; a host wakeup restarts it) before the screensaver starts, until a host sends its own setting with `SCREEN_CMD`. The settings page also picks the screensaver (`saver_t`: none, drive, stars, rain, plasma, bounce, gif1–gif3) and a time after which the backlight goes off (default never). Every `SAVER_FRAME_MS` the drive, stars, rain and plasma draw straight into the framebuffer and send it to the panel (the drive only from the horizon or the tallest palm down); the bounce moves its text through the framebuffer like the UI does. All but the drive take their colors from the theme. The first turn or click after a screensaver or a dark screen only wakes it. Quantum Painter's own timeout is disabled in `config.h` (`QUANTUM_PAINTER_DISPLAY_TIMEOUT 0`): it sends DISPOFF, which turns the lit NV3007 white and fades it out slowly, so the screen goes dark by painting black and dropping the backlight. |
 | `HOST_STALE_MS` | `5000` | No packet from the host for this long clears the app list and shows the knob's own settings screen. |
 | `HOST_WAIT_MS` | `5000` | How long the loading screen waits for the host's first app list after boot before showing the settings screen. |
 | `SCROLL_STEP_MS` | `350` | Marquee speed for app names that don't fit. |
@@ -170,6 +170,16 @@ The settings page can replace each of the three fonts. The host converts the fon
 - Erasing and programming use pico-sdk's `flash_range_*` (they run from RAM) with interrupts off, one 4 kB sector or 256-byte page at a time, so each pause is short. The USB hardware NAKs the host in the meantime, which is all the flow control the upload needs.
 - The layout is fixed, so the keymap only takes an uploaded font whose line height equals the slot's (13, 27, 24 px; it reads byte 17 of the QFF); `qff.py` renders the font at the biggest size that fits, and caps glyphs at 32 px wide (`TICKER_PAD`). Any other font falls back to the built-in one.
 - `font_big` used to be assumed monospaced by the title ticker; it now keeps a per-glyph width table (`big_glyph_w`), refreshed whenever the font changes.
+
+### GIF screensavers
+
+The same store has three more slots, 256 kB each from `0x130000` (`ANIM_STORE_*` in `config.h`, slots 3–5 of the `0x66`–`0x6A` commands), each holding an animation for one of the `gif1`–`gif3` screensavers (`SAVER_GIF1`–`SAVER_GIF3`):
+
+- The host's GIF page (`host/volume_keeb/web/gif.html`, at `/gif`) does all the image work in the browser: it decodes the GIF itself (`gif.js`, compositing frames the way browsers do), finds the size of one "8-bit" pixel and the grid's offset (`pixel.js`: the biggest square grid that holds at least 75% of the color edges, searched in steps that shrink with the image so a non-integer upscale like 3.5× doesn't drift), takes one color per cell (the most common shade inside it, ignoring the cell's borders), then crops the art pixels the screen shows at an integer scale (each art pixel `scale` × `scale` panel pixels).
+- `kva.js` turns that into a "KVA1" file: an RGB565 palette of up to 256 colors and, per frame, runs of one color, literal pixels, or pixels left as the previous frame had them; repeated frames are merged into a longer delay. The format is described above `keymap.c`'s `anim_parse()`. `web.py` only checks the header; the firmware checks the whole file when the upload ends (and again at boot) and rejects one that doesn't parse, so drawing it needs no checks.
+- `render_anim()` draws each frame's changed art pixels into `lcd_fb` and sends only the rows they touched. Housekeeping checks every `ANIM_TICK_MS` whether the next frame is due, so the GIF's own delays hold (20 ms at least, as browsers do).
+- An empty slot's screensaver shows the drive (`saver_shown()`), the knob's settings skip empty slots, and removing the screensaver's GIF from the host sets it back to the drive.
+- `tools/ui_sim` plays them too: `UI_SIM_FONTS=<dir>` with `slot3.kva`–`slot5.kva` (the host keeps a copy of each as `gif-gifN.kva` in its config folder).
 
 ## Host app
 
@@ -226,15 +236,15 @@ It lands in `host\dist\volume-keeb.exe`. To run from source instead: `pip instal
 | host → knob | `0x63` | Preset theme: an index into `keymap.c`'s `themes[]` |
 | host → knob | `0x64` | Reboot into the BOOTSEL bootloader (`volume_sync.py --bootloader`, used by `flash.sh`) |
 | host → knob | `0x65` | Palette: six H,S,V colors and the decor style |
-| host → knob | `0x66`–`0x68` | Font upload: begin (slot, length, CRC; erases), data (offset + up to 26 bytes), end (checks, loads) |
-| host → knob | `0x69` | Clear a font slot (back to the built-in font) |
-| host → knob | `0x6A` | Ask which fonts the slots hold |
+| host → knob | `0x66`–`0x68` | Upload into a store slot (0–2 fonts, 3–5 gif screensavers): begin (slot, length, CRC; erases), data (offset + up to 26 bytes), end (checks, loads) |
+| host → knob | `0x69` | Clear a slot (a font slot goes back to the built-in font) |
+| host → knob | `0x6A` | Ask what the slots hold |
 | host → knob | `0x6C` | Ask the firmware's version |
 | host → knob | `0x6D` | Ask the knob's settings (on connect, before sending the page's) |
 | host → knob | `0x6B` | Screen: screensaver kind, seconds before it starts, seconds before the screen turns off (0 = never), a flag to start the screensaver now (the page's **Show on the knob**), and the menu's layout (carousel, list, mixer; older hosts send 0, the carousel) |
 | knob → host | `0x70` | Action for one app id: `0` set volume, `1` toggle mute, `2` play/pause |
-| knob → host | `0x71` | Result of a font begin/end/clear |
-| knob → host | `0x72` | Each slot's font CRC (0 = built-in) |
+| knob → host | `0x71` | Result of an upload begin/end or a clear |
+| knob → host | `0x72` | The slot count and each slot's CRC (0 = empty); firmware before the gif screensavers has 3 slots |
 | knob → host | `0x73` | Firmware version: major, minor, patch. The v0.1.0 firmware doesn't answer `0x6C`, so silence means v0.1.0 |
 | knob → host | `0x74` | The knob's settings: a changed-on-the-knob flag, the palette and decor (as `0x65`), screensaver kind and its two times and the menu's layout (as `0x6B`). Firmware before v0.4.0 doesn't answer, and the host pushes its own |
 

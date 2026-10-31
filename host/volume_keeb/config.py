@@ -1,5 +1,6 @@
 """Settings kept between runs: the look (palette + decor), the screen's idle
-behaviour and the uploaded fonts, in a JSON file plus the font files next to it.
+behaviour, the uploaded fonts and the gif screensavers, in a JSON file plus the
+font and animation files next to it.
 
 Linux: $XDG_CONFIG_HOME/volume-keeb (~/.config/volume-keeb)
 Windows: %APPDATA%\\volume-keeb
@@ -11,7 +12,7 @@ import sys
 import threading
 from pathlib import Path
 
-from .protocol import COLOR_FIELDS, DECORS, FONT_SLOTS, MENUS, PRESETS, SAVERS
+from .protocol import COLOR_FIELDS, DECORS, FONT_SLOTS, GIF_SLOTS, MENUS, PRESETS, SAVERS
 
 DEFAULT_PRESET = "neon"
 DEFAULT_PORT = 8137
@@ -36,6 +37,8 @@ def _defaults():
         "screen": dict(DEFAULT_SCREEN),
         # slot -> {"name": original file name, "format": mono2/4/16, "size": pt, "crc": of the QFF}
         "fonts": {},
+        # slot -> {"name", "w", "h", "scale", "frames", "bytes", "crc": of the animation}
+        "gifs": {},
         "port": DEFAULT_PORT,
     }
 
@@ -79,6 +82,8 @@ class Config:
         d["screen"] = {k: d["screen"][k] for k in DEFAULT_SCREEN}
         fonts = d["fonts"] if isinstance(d["fonts"], dict) else {}
         d["fonts"] = {s: v for s, v in fonts.items() if s in FONT_SLOTS and self.font_path(s, "qff").exists()}
+        gifs = d["gifs"] if isinstance(d["gifs"], dict) else {}
+        d["gifs"] = {s: v for s, v in gifs.items() if s in GIF_SLOTS and self.gif_path(s).exists()}
 
     def save(self):
         self.dir.mkdir(parents=True, exist_ok=True)
@@ -90,6 +95,9 @@ class Config:
     def font_path(self, slot, ext):
         """The slot's original font ("src") or its converted QFF ("qff")."""
         return self.dir / f"font-{slot}.{ext}"
+
+    def gif_path(self, slot):
+        return self.dir / f"gif-{slot}.kva"
 
     def set_theme(self, colors, decor, preset):
         if decor not in DECORS or set(colors) != set(COLOR_FIELDS) or not all(map(_valid_hsv, colors.values())):
@@ -120,4 +128,17 @@ class Config:
             self.data["fonts"].pop(slot, None)
             for ext in ("src", "qff"):
                 self.font_path(slot, ext).unlink(missing_ok=True)
+            self.save()
+
+    def set_gif(self, slot, data, info):
+        with self.lock:
+            self.dir.mkdir(parents=True, exist_ok=True)
+            self.gif_path(slot).write_bytes(data)
+            self.data["gifs"][slot] = info
+            self.save()
+
+    def clear_gif(self, slot):
+        with self.lock:
+            self.data["gifs"].pop(slot, None)
+            self.gif_path(slot).unlink(missing_ok=True)
             self.save()

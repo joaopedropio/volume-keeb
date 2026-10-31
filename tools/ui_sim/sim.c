@@ -194,7 +194,7 @@ int main(int argc, char **argv) {
     for (uint8_t ti = 0; ti < sizeof(saver_themes); ti++) {
         uint8_t th[RAW_EPSIZE] = {THEME_CMD, saver_themes[ti]};
         raw_hid_receive(th, sizeof(th));
-        for (uint8_t k = SAVER_STARS; k < SAVER_COUNT; k++) {
+        for (uint8_t k = SAVER_STARS; k < SAVER_GIF1; k++) {
             uint8_t p[RAW_EPSIZE] = {SCREEN_CMD, k, 30, 0, 0, 0, 1};
             raw_hid_receive(p, sizeof(p));
             for (int f = 0; f < 3; f++) {
@@ -205,6 +205,20 @@ int main(int argc, char **argv) {
             turn(true);
             tick(20);
         }
+    }
+
+    // The gif savers whose slots hold an animation (UI_SIM_FONTS), a few
+    // frames each, 100 ms apart.
+    for (uint8_t i = 0; i < ANIM_SLOTS; i++) {
+        if (!anim_ok[i]) continue;
+        uint8_t p[RAW_EPSIZE] = {SCREEN_CMD, SAVER_GIF1 + i, 30, 0, 0, 0, 1};
+        raw_hid_receive(p, sizeof(p));
+        for (int f = 0; f < 6; f++) {
+            tick(f ? 100 : 10);
+            snprintf(name, sizeof(name), "saver_gif%u_%d", i + 1, f); dump(name);
+        }
+        turn(true);
+        tick(20);
     }
 
     // Off after 60 s with no screensaver: the UI stays until then.

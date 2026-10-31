@@ -136,7 +136,8 @@
   }
   .saver b { display: block; font-size: 13px; font-weight: 600; }
   .saver small { color: var(--muted); font-size: 12px; }
-  .thumb.none { background: var(--panel); color: var(--muted); font-weight: 400; }
+  .thumb.none, .saver.empty .thumb { background: var(--panel); color: var(--muted); font-weight: 400; }
+  .saver .thumb canvas { width: 100%; height: 100%; object-fit: cover; image-rendering: pixelated; }
   .thumb.drive {
     background:
       radial-gradient(circle at 50% 100%, #ffe628 0 22%, #ff4690 23% 30%, transparent 31%) no-repeat 50% 0 / 100% 55%,
@@ -255,7 +256,7 @@
 
   <section>
     <h2>Screen</h2>
-    <p class="hint">What the knob shows while you aren't using it. Turning or pressing the knob brings the controls back; that first touch does nothing else.</p>
+    <p class="hint">What the knob shows while you aren't using it. Turning or pressing the knob brings the controls back; that first touch does nothing else. Make your own from GIFs on the <a href="/gif">GIF page</a>.</p>
     <div class="savers" id="savers"></div>
     <div class="settings-row">
       <label>Start the screensaver after <select id="saver-after"></select></label>
@@ -285,6 +286,8 @@
   </section>
 </main>
 
+<script src="/gif.js"></script>
+<script src="/kva.js"></script>
 <script>
 "use strict";
 
@@ -309,6 +312,9 @@ const SAVER_INFO = {
   rain: ["Rain", "Falling glyphs, Matrix-style", "ｱ3ﾘ7ｶ0ﾊ"],
   plasma: ["Plasma", "Slow waves in your theme's colors", ""],
   bounce: ["Bounce", "What's playing, bouncing around", "♪ title"],
+  gif1: ["GIF 1", "", ""],
+  gif2: ["GIF 2", "", ""],
+  gif3: ["GIF 3", "", ""],
 };
 const SAVER_AFTER = [15, 30, 60, 120, 300, 600, 900, 1800, 3600];
 const OFF_AFTER = [0, 60, 300, 600, 900, 1800, 3600, 7200, 14400];
@@ -855,15 +861,19 @@ function renderScreen() {
   const box = document.getElementById("savers");
   box.innerHTML = "";
   for (const name of state.savers) {
-    const [label, desc, art] = SAVER_INFO[name] || [name, "", ""];
+    let [label, desc, art] = SAVER_INFO[name] || [name, "", ""];
+    const gif = state.gifs && state.gifs[name];
+    const empty = gif && !gif.custom;
+    if (gif) { desc = empty ? "Empty: make one from a GIF" : gif.custom.name; art = empty ? "+" : ""; }
     const b = document.createElement("button");
-    b.className = "saver" + (screen.saver === name ? " on" : "");
+    b.className = "saver" + (screen.saver === name ? " on" : "") + (empty ? " empty" : "");
     b.innerHTML = `<div class="thumb ${name}"></div><b></b><small></small>`;
     b.querySelector(".thumb").textContent = art;
     b.querySelector("b").textContent = label;
     b.querySelector("small").textContent = desc;
-    b.onclick = () => { screen.saver = name; renderScreen(); saveScreen(); };
+    b.onclick = empty ? () => { location.href = "/gif"; } : () => { screen.saver = name; renderScreen(); saveScreen(); };
     box.append(b);
+    if (gif && !empty) showGif(b.querySelector(".thumb"), name, gif.custom.crc);
   }
   const after = document.getElementById("saver-after");
   fillSelect(after, SAVER_AFTER, screen.saver_after, v => { screen.saver_after = v; renderScreen(); saveScreen(); });
@@ -874,6 +884,19 @@ function renderScreen() {
   const msg = document.getElementById("screen-msg");
   msg.textContent = screen.saver !== "none" && screen.off_after && screen.off_after <= screen.saver_after
     ? "The screen turns off before the screensaver would start, so it never shows." : "";
+}
+
+const gifAnims = {};  // crc -> decoded animation
+async function showGif(thumb, slot, crc) {
+  try {
+    if (!gifAnims[crc]) {
+      const res = await fetch(`/api/gifs/${slot}/data?v=${crc}`);
+      gifAnims[crc] = Kva.decode(new Uint8Array(await res.arrayBuffer()));
+    }
+    const c = document.createElement("canvas");
+    thumb.append(c);
+    Kva.play(c, gifAnims[crc]);
+  } catch { thumb.textContent = "?"; }
 }
 
 document.getElementById("saver-preview").onclick = () => {
@@ -1138,6 +1161,7 @@ function setStatus(kind, text) {
 function showConnection(s) {
   if (!s.connected) setStatus("bad", "Knob not connected");
   else if (s.fonts_supported === false) setStatus("warn", "Connected · firmware too old for fonts");
+  else if (s.gifs_supported === false) setStatus("warn", "Connected · update the firmware for GIF screensavers");
   else setStatus("ok", "Knob connected");
 }
 
@@ -1147,6 +1171,7 @@ async function poll() {
     const was = state.connected;
     state.connected = s.connected;
     state.fonts_supported = s.fonts_supported;
+    state.gifs_supported = s.gifs_supported;
     showConnection(s);
     if (was !== s.connected) renderScreen();
     renderUpdates(s.updates);
