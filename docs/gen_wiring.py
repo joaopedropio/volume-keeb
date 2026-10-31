@@ -8,7 +8,7 @@ face the screen's pads and the encoder's pins in nearly the same order: the
 encoder's wires go straight across, and so do the screen's first two. The
 screen's VCC and GND go under the board and join the encoder's + and GND
 just before their pads (one 3V3 pad, one GND pad).
-Adapted from dongle-slayer's tools/gen_wiring.py. Kept in git; stdlib only.
+Kept in git; stdlib only.
 
     docs/gen_wiring.py
 """

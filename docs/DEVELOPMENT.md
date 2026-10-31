@@ -260,7 +260,7 @@ The firmware doesn't store the look; the host sends it on start, on every reconn
 
 ## Case
 
-`case/volume_case.scad` is parametric OpenSCAD, written in the style of [dongle-slayer](https://github.com/joaopedropio/dongle-slayer)'s `case/dongle_case.scad` (branch `case-3d`), which is also where the NV3007 module's numbers come from. The shape follows the MaxMix base (the untracked `maxmix_base_*.stl` in the repo root are only a visual reference).
+`case/volume_case.scad` is parametric OpenSCAD. The shape follows the MaxMix base (the untracked `maxmix_base_*.stl` in the repo root are only a visual reference).
 
 ### How it holds the parts
 
@@ -290,7 +290,7 @@ To see an overlap: `openscad -D 'part="check"' case/volume_case.scad`. `part="vi
 
 ### The 3D viewer and GitHub Pages
 
-`case/viewer.html` is a plain WebGL page (adapted from dongle-slayer's `web/js/case3d.js`) with a checkbox per part and a slider that lifts the top. Browsers won't load the STLs from `file://`, so serve it:
+`case/viewer.html` is a plain WebGL page with a checkbox per part and a slider that lifts the top. Browsers won't load the STLs from `file://`, so serve it:
 
 ```sh
 python3 -m http.server -d case 8000   # http://localhost:8000/viewer.html

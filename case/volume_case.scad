@@ -13,8 +13,7 @@
 //   everything on it (both should come out empty).
 //
 // Everything is held by the base, so the top only covers it:
-// - the screen stands on two ribs behind its ends, as in dongle-slayer's case
-//   (github.com/joaopedropio/dongle-slayer, case/dongle_case.scad): the right
+// - the screen stands on two ribs behind its ends: the right
 //   one takes its two holes (M2 x 5 pan-head screws from the front of the
 //   board into heat-set inserts), the left one props the other end;
 // - the encoder module sits on a frame of four walls under its edges, with
@@ -36,8 +35,8 @@ part = "view";
 // when its numbers are in (see enc_dims below).
 encoder = "hw040";
 
-// ---- the screen module, mm, seen from the front as it sits; from dongle-
-// slayer's case (its maker's drawing, GoldenMorning, 8 pins; glass_t measured)
+// ---- the screen module, mm, seen from the front as it sits (its maker's
+// drawing, GoldenMorning, 8 pins; glass_t measured)
 mod_w = 78.0;
 mod_h = 25.9;
 pcb_t = 1.6;
