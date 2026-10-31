@@ -164,6 +164,25 @@ int main(int argc, char **argv) {
         click();
     }
 
+    // Every preset's colors with the VU meter decor (a custom palette from
+    // the page): its ink has to show on faces as dark or light as the bg.
+    for (uint8_t th = 0; th < THEME_COUNT; th++) {
+        uint8_t p[RAW_EPSIZE] = {PALETTE_CMD};
+        memcpy(&p[1], &themes[th], 18);
+        p[19] = DECOR_VU;
+        raw_hid_receive(p, sizeof(p));
+        send_snapshot();
+        screen = SCREEN_MENU; menu_cursor = 1; active_app = 1; need_full_redraw = true;
+        tick(20);
+        snprintf(name, sizeof(name), "vu_t%u_menu", th); dump(name);
+        set_menu(MENU_LIST); snprintf(name, sizeof(name), "vu_t%u_menu_list", th); dump(name);
+        set_menu(MENU_CAROUSEL);
+        click(); send_snapshot();
+        snprintf(name, sizeof(name), "vu_t%u_app", th); dump(name);
+        click();
+    }
+    { uint8_t p[RAW_EPSIZE] = {THEME_CMD, 3}; raw_hid_receive(p, sizeof(p)); }
+
     // The mixer menu sets volumes: click grabs Spotify's fader, turning
     // moves it, a click lets go; holding mutes, a double click opens it.
     send_snapshot(); set_menu(MENU_MIXER);

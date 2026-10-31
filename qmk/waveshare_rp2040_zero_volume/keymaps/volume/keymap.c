@@ -154,7 +154,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 //                middle; the title, play state and hints on the right.
 //                Selected rows are rounded accent pills.
 //   DECOR_VU     hifi: the same panel, next to an analog VU meter -- a
-//                lit `well` face with the scale printed in `bg`, a red
+//                lit `well` face with the scale printed in `bg` (`fg` on a face as dark or light as `bg`: vu_ink()), a red
 //                (`accent`) zone at the top and a needle on the volume.
 //                The selected row is the face's color with an accent mark.
 //   DECOR_MIXER  console: the same panel, next to a fader and a column of
@@ -649,6 +649,17 @@ static void vu_tick(uint8_t pct, uint16_t r0, uint16_t r1, uint8_t h, uint8_t s,
     qp_line(lcd, x0, y0, x1, y1, h, s, v);
 }
 
+// What DECOR_VU prints on its face (scale, needle, the selected row's text):
+// `bg`, as on hifi's lit cream face, unless the face is about as bright as
+// `bg` -- a palette whose well equals bg, like neon or neobrutal -- where it
+// would vanish, so `fg` instead. The host page's vuInk() does the same.
+#define VU_INK_MIN_DV 96
+static const uint8_t *vu_ink(const theme_t *t) {
+    int16_t d = (int16_t)t->bg_v - t->well_v;
+    return (d >= VU_INK_MIN_DV || d <= -VU_INK_MIN_DV) ? &t->bg_h : &t->fg_h;
+}
+#define INK(p) (p)[0], (p)[1], (p)[2]
+
 // A fader's cap: a light block with a dark grip line across it.
 static void draw_fader_cap(uint16_t cx, uint16_t cy, uint16_t half_w, uint8_t h, uint8_t s, uint8_t v) {
     const theme_t *t = &theme;
@@ -709,6 +720,7 @@ static void draw_vu(void) {
     app_t         *a       = &apps[active_app];
     uint8_t        percent = a->volume > 100 ? 100 : a->volume;
     uint8_t        needle  = (host_seen && !a->muted) ? percent : 0;
+    const uint8_t *ink     = vu_ink(t);
 
     lcd_clear_region(0, 0, VU_W - 1, LCD_HEIGHT - 1);
     qp_rect(lcd, MARGIN, MARGIN, VU_W - 7, LCD_HEIGHT - 1 - MARGIN, CT(well), true);
@@ -725,13 +737,13 @@ static void draw_vu(void) {
                 qp_line(lcd, x0, y0, x1, y1, CT(accent));
                 qp_line(lcd, x0, y0 + 1, x1, y1 + 1, CT(accent));
             } else {
-                qp_line(lcd, x0, y0, x1, y1, CT(bg));
+                qp_line(lcd, x0, y0, x1, y1, INK(ink));
             }
         }
     }
     for (uint8_t p = 0; p <= 100; p += 5) {
         bool major = p % 20 == 0;
-        vu_tick(p, VU_R - (major ? 12 : 6), VU_R, p >= VU_RED ? t->accent_h : t->bg_h, p >= VU_RED ? t->accent_s : t->bg_s, p >= VU_RED ? t->accent_v : t->bg_v);
+        vu_tick(p, VU_R - (major ? 12 : 6), VU_R, p >= VU_RED ? t->accent_h : ink[0], p >= VU_RED ? t->accent_s : ink[1], p >= VU_RED ? t->accent_v : ink[2]);
         if (major) {
             char    num[4];
             int16_t nx, ny;
@@ -741,7 +753,7 @@ static void draw_vu(void) {
             if (p >= VU_RED) {
                 qp_drawtext_recolor(lcd, nx - w / 2, ny - UI_CHAR_H / 2, font_ui, num, CT(accent), CT(well));
             } else {
-                qp_drawtext_recolor(lcd, nx - w / 2, ny - UI_CHAR_H / 2, font_ui, num, CT(bg), CT(well));
+                qp_drawtext_recolor(lcd, nx - w / 2, ny - UI_CHAR_H / 2, font_ui, num, INK(ink), CT(well));
             }
         }
     }
@@ -758,16 +770,16 @@ static void draw_vu(void) {
     if (a->muted) {
         qp_drawtext_recolor(lcd, MARGIN + 8, ly, font_ui, label, CT(mute), CT(well));
     } else {
-        qp_drawtext_recolor(lcd, MARGIN + 8, ly, font_ui, label, CT(bg), CT(well));
+        qp_drawtext_recolor(lcd, MARGIN + 8, ly, font_ui, label, INK(ink), CT(well));
     }
-    qp_drawtext_recolor(lcd, VU_W - 15 - qp_textwidth(font_ui, "VU"), ly, font_ui, "VU", CT(bg), CT(well));
+    qp_drawtext_recolor(lcd, VU_W - 15 - qp_textwidth(font_ui, "VU"), ly, font_ui, "VU", INK(ink), CT(well));
 
     // The needle, two pixels wide, over a dark cap on the pivot.
     int16_t nx, ny;
     vu_point(needle, VU_R - 2, &nx, &ny);
-    qp_line(lcd, VU_PX, VU_PY, nx, ny, CT(bg));
-    qp_line(lcd, VU_PX + 1, VU_PY, nx + 1, ny, CT(bg));
-    qp_circle(lcd, VU_PX, VU_PY, 7, CT(bg), true);
+    qp_line(lcd, VU_PX, VU_PY, nx, ny, INK(ink));
+    qp_line(lcd, VU_PX + 1, VU_PY, nx + 1, ny, INK(ink));
+    qp_circle(lcd, VU_PX, VU_PY, 7, INK(ink), true);
     qp_circle(lcd, VU_PX, VU_PY, 2, t->well_h, t->well_s, t->well_v / 2, true);
 }
 
@@ -998,7 +1010,7 @@ static void row_text(uint16_t x, uint16_t y, const char *text, bool sel, bool fi
         if (secondary) {
             qp_drawtext_recolor(lcd, x, y, font_list, text, CT(dim), CT(well));
         } else {
-            qp_drawtext_recolor(lcd, x, y, font_list, text, CT(bg), CT(well));
+            qp_drawtext_recolor(lcd, x, y, font_list, text, INK(vu_ink(t)), CT(well));
         }
     } else if (filled) {
         qp_drawtext_recolor(lcd, x, y, font_list, text, CT(bg), CT(accent));
@@ -1051,7 +1063,11 @@ static void render_list_menu(void) {
             uint16_t dx = ROW_X1 - LIST_PAD - ACTIVE_DOT + 1;
             uint16_t dy = y0 + (LIST_BOX_H - ACTIVE_DOT) / 2;
             if (filled) {
-                qp_rect(lcd, dx, dy, dx + ACTIVE_DOT - 1, dy + ACTIVE_DOT - 1, CT(bg), true);
+                if (t->decor == DECOR_VU) {
+                    qp_rect(lcd, dx, dy, dx + ACTIVE_DOT - 1, dy + ACTIVE_DOT - 1, INK(vu_ink(t)), true);
+                } else {
+                    qp_rect(lcd, dx, dy, dx + ACTIVE_DOT - 1, dy + ACTIVE_DOT - 1, CT(bg), true);
+                }
             } else {
                 qp_rect(lcd, dx, dy, dx + ACTIVE_DOT - 1, dy + ACTIVE_DOT - 1, CT(fg), true);
             }
@@ -1072,7 +1088,9 @@ static void render_list_menu(void) {
             } else if (filled) {
                 rh = t->accent_h, rs = t->accent_s, rv = t->accent_v;
             }
-            if (filled) {
+            if (filled && t->decor == DECOR_VU) {
+                qp_drawtext_recolor(lcd, vx, vy, font_ui, vol, INK(vu_ink(t)), rh, rs, rv);
+            } else if (filled) {
                 qp_drawtext_recolor(lcd, vx, vy, font_ui, vol, CT(bg), rh, rs, rv);
             } else if (a->muted) {
                 qp_drawtext_recolor(lcd, vx, vy, font_ui, vol, CT(mute), rh, rs, rv);
@@ -1112,7 +1130,8 @@ static card_colors_t card_colors(const theme_t *t, bool big) {
         c.fill_h = t->well_h, c.fill_s = t->well_s, c.fill_v = t->well_v;
     }
     if (big && t->decor == DECOR_VU) {
-        c.ink_h = t->bg_h, c.ink_s = t->bg_s, c.ink_v = t->bg_v;
+        const uint8_t *ink = vu_ink(t);
+        c.ink_h = ink[0], c.ink_s = ink[1], c.ink_v = ink[2];
     } else if (!big) {
         c.ink_h = t->dim_h, c.ink_s = t->dim_s, c.ink_v = t->dim_v;
     }

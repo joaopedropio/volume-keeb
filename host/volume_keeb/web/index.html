@@ -521,8 +521,14 @@ function drawMixerApp(t) {
   drawPanel(t, "mixer", MIXER_W);
 }
 
+// What the VU face is printed in: keymap.c's vu_ink(), `bg` unless the face
+// is about as bright as it.
+function vuInk(t) {
+  return Math.abs(t.bg[2] - t.well[2]) >= 96 ? t.bg : t.fg;
+}
+
 function drawVuApp(t) {
-  const a = DEMO.app;
+  const a = DEMO.app, ink = vuInk(t);
   rect(0, 0, W - 1, H - 1, t.bg);
   rect(MARGIN, MARGIN, VU_W - 7, H - 1 - MARGIN, t.well);
   rect(MARGIN + 2, MARGIN + 2, VU_W - 9, H - 3 - MARGIN, [t.well[0], t.well[1], Math.floor(t.well[2] * 3 / 4)], false);
@@ -530,11 +536,11 @@ function drawVuApp(t) {
     const red = p >= VU_RED;
     for (let r = red ? VU_R - 4 : VU_R; r <= VU_R; r++) {
       const [x0, y0] = vuPoint(p, r), [x1, y1] = vuPoint(p + 1, r);
-      stroke(x0, y0, x1, y1, red ? t.accent : t.bg, red ? 2 : 1);
+      stroke(x0, y0, x1, y1, red ? t.accent : ink, red ? 2 : 1);
     }
   }
   for (let p = 0; p <= 100; p += 5) {
-    const major = p % 20 === 0, c = p >= VU_RED ? t.accent : t.bg;
+    const major = p % 20 === 0, c = p >= VU_RED ? t.accent : ink;
     const [x0, y0] = vuPoint(p, VU_R - (major ? 12 : 6)), [x1, y1] = vuPoint(p, VU_R);
     stroke(x0, y0, x1, y1, c);
     if (major) {
@@ -543,11 +549,11 @@ function drawVuApp(t) {
     }
   }
   const ly = H - MARGIN - 6 - SLOT_H.ui;
-  text(MARGIN + 8, ly, "ui", `VOL ${a.volume}`, t.bg, t.well);
-  text(VU_W - 15 - textWidth("ui", "VU"), ly, "ui", "VU", t.bg, t.well);
+  text(MARGIN + 8, ly, "ui", `VOL ${a.volume}`, ink, t.well);
+  text(VU_W - 15 - textWidth("ui", "VU"), ly, "ui", "VU", ink, t.well);
   const [nx, ny] = vuPoint(a.volume, VU_R - 2);
-  stroke(VU_PX, VU_PY, nx, ny, t.bg, 2);
-  circle(VU_PX, VU_PY, 7, t.bg);
+  stroke(VU_PX, VU_PY, nx, ny, ink, 2);
+  circle(VU_PX, VU_PY, 7, ink);
   circle(VU_PX, VU_PY, 2, [t.well[0], t.well[1], Math.floor(t.well[2] / 2)]);
   drawPanel(t, "vu", VU_W);
 }
@@ -630,15 +636,15 @@ function drawListMenu(t, decor) {
     else if (sel || (decor !== "flat" && decor !== "neon" && decor !== "mixer")) box(x0, y0, x1, y0 + LIST_BOX_H - 1, t, decor, sel, false);
     if (row === DEMO.cursor) {
       const dx = x1 - LIST_PAD - ACTIVE_DOT + 1, dy = y0 + Math.floor((LIST_BOX_H - ACTIVE_DOT) / 2);
-      rect(dx, dy, dx + ACTIVE_DOT - 1, dy + ACTIVE_DOT - 1, filled ? t.bg : t.fg);
+      rect(dx, dy, dx + ACTIVE_DOT - 1, dy + ACTIVE_DOT - 1, filled ? (decor === "vu" ? vuInk(t) : t.bg) : t.fg);
     }
     if (volW) {
       const v = String(vol);
-      text(volX1 - textWidth("ui", v), y0 + Math.floor((LIST_BOX_H - SLOT_H.ui) / 2), "ui", v, filled ? t.bg : t.dim, filled ? selBg : rowBg);
+      text(volX1 - textWidth("ui", v), y0 + Math.floor((LIST_BOX_H - SLOT_H.ui) / 2), "ui", v, filled ? (decor === "vu" ? vuInk(t) : t.bg) : t.dim, filled ? selBg : rowBg);
     }
     const ty = y0 + Math.floor((LIST_BOX_H - SLOT_H.list) / 2);
     const shown = fit("list", name, textW), nameW = textWidth("list", shown);
-    if (filled) text(textX, ty, "list", shown, t.bg, selBg);
+    if (filled) text(textX, ty, "list", shown, decor === "vu" ? vuInk(t) : t.bg, selBg);
     else if (sel) text(textX, ty, "list", shown, t.accent, t.well);
     else text(textX, ty, "list", shown, t.fg, rowBg);
     if (song && nameW < textW) {
@@ -653,7 +659,7 @@ function drawListMenu(t, decor) {
 // The carousel: keymap.c's render_carousel_menu().
 function cardColors(t, decor, big) {
   const fill = decor === "dial" || (big && decor !== "flat" && decor !== "boxed") ? t.well : t.bg;
-  const ink = big && decor === "vu" ? t.bg : big ? t.fg : t.dim;
+  const ink = big && decor === "vu" ? vuInk(t) : big ? t.fg : t.dim;
   return { fill, ink };
 }
 function drawPeek(t, decor, x0, name) {
