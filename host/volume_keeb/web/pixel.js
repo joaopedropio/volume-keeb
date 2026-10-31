@@ -72,6 +72,26 @@ const Pixel = (() => {
     return { cell: +pick.p.toFixed(3), ox: +(pick.ox % pick.p).toFixed(2), oy: +(pick.oy % pick.p).toFixed(2), cover: pick.cover };
   }
 
+  // The source turned `turns` quarter turns clockwise, mirrored left-right
+  // first when `mirror`.
+  function transform(src, turns, mirror) {
+    const { w, h } = src, side = turns % 2;
+    const W = side ? h : w, H = side ? w : h;
+    const frames = src.frames.map(fr => {
+      const d = fr.rgba, out = new Uint8ClampedArray(d.length);
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const xf = mirror ? w - 1 - x : x;
+          const X = turns === 1 ? h - 1 - y : turns === 2 ? w - 1 - xf : turns === 3 ? y : xf;
+          const Y = turns === 1 ? xf : turns === 2 ? h - 1 - y : turns === 3 ? w - 1 - xf : y;
+          const i = (y * w + x) * 4, o = (Y * W + X) * 4;
+          out[o] = d[i]; out[o + 1] = d[i + 1]; out[o + 2] = d[i + 2]; out[o + 3] = d[i + 3];
+        }
+      return { rgba: out, delay: fr.delay };
+    });
+    return { w: W, h: H, frames };
+  }
+
   // Where each art pixel's cell lies in the source along one axis.
   function axis(n, cell, off) {
     const start = off >= cell / 2 ? off - cell : off;  // a partial cell before the offset still counts
@@ -229,5 +249,5 @@ const Pixel = (() => {
     return out;
   }
 
-  return { detect, build, compose };
+  return { detect, build, compose, transform };
 })();

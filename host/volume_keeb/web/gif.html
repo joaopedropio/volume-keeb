@@ -80,6 +80,13 @@
       <label><input type="file" id="file" accept="image/*" hidden><button id="pick">Open file…</button></label>
     </div>
     <div class="status" id="loadStatus"></div>
+    <div class="row" id="turnRow" hidden style="margin: 10px 0 0">
+      <button id="turnL" title="Rotate 90° counterclockwise">⟲ 90°</button>
+      <button id="turnR" title="Rotate 90° clockwise">⟳ 90°</button>
+      <button id="turn2">180°</button>
+      <button id="mirror" title="Mirror left-right">⇆ Mirror</button>
+      <span class="info" id="turnInfo"></span>
+    </div>
   </section>
 
   <section id="secPixels" class="off">
@@ -274,6 +281,9 @@ async function decodeAny(bytes, type) {
 
 async function loadBytes(bytes, type, name) {
   const src = await decodeAny(bytes, type);
+  S.orig = src;
+  S.turns = 0;
+  S.mirror = false;
   S.src = src;
   S.name = name;
   S.frame = 0;
@@ -283,9 +293,39 @@ async function loadBytes(bytes, type, name) {
   status('loadStatus', `Loaded ${src.w} × ${src.h}, ${src.frames.length} frame${src.frames.length > 1 ? 's' : ''} (${(bytes.length / 1024).toFixed(0)} kB).`);
   for (const id of ['secPixels', 'secScreen', 'secOut', 'secSend', 'secSave']) $(id).classList.remove('off');
   $('gifName').value = name;
+  $('turnRow').hidden = false;
+  turnInfo();
   autoDetect();
   rebuild(true);
 }
+
+// ---------- rotation ----------
+
+function turnInfo() {
+  const parts = [];
+  if (S.turns) parts.push(`rotated ${S.turns * 90}° clockwise`);
+  if (S.mirror) parts.push('mirrored');
+  $('turnInfo').textContent = parts.length ? `${parts.join(', ')} · ${S.src.w} × ${S.src.h}` : '';
+}
+
+// Turning the image starts the rest over: the grid and the crop follow it.
+function turn(by, mirror = false) {
+  if (!S.orig) return;
+  if (mirror) {
+    // Mirroring after the turn is mirroring first and turning the other way.
+    S.mirror = !S.mirror;
+    S.turns = (4 - S.turns) % 4;
+  }
+  S.turns = (S.turns + by) % 4;
+  S.src = Pixel.transform(S.orig, S.turns, S.mirror);
+  turnInfo();
+  autoDetect();
+  rebuild(true);
+}
+$('turnL').addEventListener('click', () => turn(3));
+$('turnR').addEventListener('click', () => turn(1));
+$('turn2').addEventListener('click', () => turn(2));
+$('mirror').addEventListener('click', () => turn(0, true));
 
 // ---------- pixel grid ----------
 
