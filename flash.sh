@@ -4,13 +4,21 @@
 # wait for the RPI-RP2 drive and copy the UF2 onto it. If the board is already
 # in BOOTSEL (or runs firmware older than this command), the copy still
 # happens once the drive appears.
+#   ./flash.sh                  build, then flash
+#   ./flash.sh --no-build       flash the last build
+#   ./flash.sh volume-keeb.uf2  flash a given file (e.g. from a release)
 set -e
-cd "$(dirname "$0")"
 KB=handwired/onekey/waveshare_rp2040_zero_volume
 QMK_HOME=${QMK_HOME:-$HOME/qmk_firmware}
 UF2=$QMK_HOME/handwired_onekey_waveshare_rp2040_zero_volume_volume.uf2
 
-[ "$1" = "--no-build" ] || (cd "$QMK_HOME" && qmk compile -kb $KB -km volume)
+case "$1" in
+    "") (cd "$QMK_HOME" && qmk compile -kb $KB -km volume) ;;
+    --no-build) ;;
+    *) UF2=$(realpath "$1") ;;
+esac
+[ -f "$UF2" ] || { echo "no such file: $UF2" >&2; exit 1; }
+cd "$(dirname "$0")"
 
 find_drive() { lsblk -rno NAME,LABEL | awk '$2=="RPI-RP2"{print "/dev/"$1; exit}'; }
 

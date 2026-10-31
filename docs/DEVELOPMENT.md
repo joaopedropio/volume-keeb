@@ -1,12 +1,13 @@
 # volume-keeb: development notes
 
-Everything you need to change the firmware, the host daemon or the case. If you only want to build one, read the [README](../README.md) instead.
+Everything you need to change the firmware, the host app or the case. If you only want to build one, read the [README](../README.md) instead.
 
 ## Contents
 
 - [Repo layout](#repo-layout)
 - [Firmware](#firmware)
   - [Why QMK](#why-qmk)
+  - [Building the firmware](#building-the-firmware)
   - [Keyboard definition](#keyboard-definition)
   - [The SW pin is the only key](#the-sw-pin-is-the-only-key)
   - [Display and the NV3007 driver](#display-and-the-nv3007-driver)
@@ -15,6 +16,7 @@ Everything you need to change the firmware, the host daemon or the case. If you 
   - [Fonts](#fonts)
   - [Fonts uploaded from the host](#fonts-uploaded-from-the-host)
 - [Host app](#host-app)
+  - [Building the Windows app](#building-the-windows-app)
   - [Raw HID protocol](#raw-hid-protocol)
   - [Adding a theme](#adding-a-theme)
 - [Case](#case)
@@ -22,6 +24,7 @@ Everything you need to change the firmware, the host daemon or the case. If you 
   - [Regenerating and checking](#regenerating-and-checking)
   - [The 3D viewer and GitHub Pages](#the-3d-viewer-and-github-pages)
   - [Adding another encoder module](#adding-another-encoder-module)
+- [Releases](#releases)
 
 ## Repo layout
 
@@ -35,6 +38,8 @@ Everything you need to change the firmware, the host daemon or the case. If you 
 | `case/volume_case-{top,base}.stl` | The two prints, exported from the `.scad`. |
 | `case/view/*.stl`, `case/viewer.html` | Stand-ins for the electronics and the WebGL page that shows them inside the case. |
 | `case/gen_case.sh`, `case/deploy_pages.sh` | Export + check the case; copy the viewer to GitHub Pages. |
+| `flash.sh` | Build + flash without touching the buttons (Linux; see [Building the firmware](#building-the-firmware)). |
+| `.github/workflows/release.yml` | Builds the `.uf2` and the `.exe` and publishes [releases](#releases). |
 | `docs/wiring.svg`, `docs/gen_wiring.py` | The README's wiring picture and the script that draws it (to scale, from the `.scad`'s numbers; rerun it after changing pins). |
 
 ## Firmware
@@ -43,19 +48,51 @@ Everything you need to change the firmware, the host daemon or the case. If you 
 
 The board runs QMK, not CircuitPython/KMK. CircuitPython's `usb_hid` has no USB remote-wakeup support ([adafruit/circuitpython#8774](https://github.com/adafruit/circuitpython/issues/8774)), so the knob could never wake a suspended host. Don't move it back to that stack.
 
-### Keyboard definition
+### Building the firmware
+
+Install the toolchain.
+
+**Ubuntu / Debian:**
+
+```sh
+sudo apt install -y git python3-pip pipx gcc-arm-none-eabi libnewlib-arm-none-eabi binutils-arm-none-eabi
+pipx install qmk
+pipx ensurepath   # then open a new terminal
+```
+
+**Arch:**
+
+```sh
+sudo pacman -S --needed git python-pip arm-none-eabi-gcc arm-none-eabi-newlib arm-none-eabi-binutils
+pip install --user qmk
+```
+
+**macOS:** `brew install qmk/qmk/qmk` installs the CLI and the toolchain.
+
+Get QMK (the tag the [release workflow](#releases) uses, `QMK_REF`, is the one known to work) and this repo:
+
+```sh
+git clone --depth 1 --branch 0.34.4 --recurse-submodules --shallow-submodules https://github.com/qmk/qmk_firmware.git ~/qmk_firmware
+qmk config user.qmk_home=$HOME/qmk_firmware
+git clone https://github.com/joaopedropio/volume-keeb.git ~/volume-keeb
+```
 
 QMK only builds keyboards that live inside a `qmk_firmware` checkout. Instead of copying the files there, symlink this repo's folder in, so there is only one copy:
 
 ```sh
-ln -s "$(pwd)/qmk/waveshare_rp2040_zero_volume" ~/qmk_firmware/keyboards/handwired/onekey/waveshare_rp2040_zero_volume
+ln -s ~/volume-keeb/qmk/waveshare_rp2040_zero_volume ~/qmk_firmware/keyboards/handwired/onekey/waveshare_rp2040_zero_volume
 ```
 
 Edit the files through this repo's path so `git status` stays meaningful. Build with:
 
 ```sh
+cd ~/qmk_firmware
 qmk compile -kb handwired/onekey/waveshare_rp2040_zero_volume -km volume
 ```
+
+That writes `handwired_onekey_waveshare_rp2040_zero_volume_volume.uf2` to `~/qmk_firmware`. On Linux, `./flash.sh` does the build and the flash in one go: it compiles, asks the running knob to reboot into BOOTSEL (`volume_sync.py --bootloader`), waits for `RPI-RP2` and copies the file. `./flash.sh --no-build` flashes the last build; `./flash.sh some.uf2` flashes a given file. With older firmware (no `0x64` command), press BOOT+RESET by hand and it still copies once the drive appears.
+
+### Keyboard definition
 
 The board inherits USB VID/PID `0xFEED`/`0x6465` from `handwired/onekey`. `host/volume_keeb/protocol.py` and `host/70-volume-keeb.rules` both look for that pair; change all three together.
 
@@ -157,6 +194,16 @@ cd host && python3 -m volume_keeb.qff SomeFont.ttf title /tmp/fonts/slot1.qff mo
 UI_SIM_FONTS=/tmp/fonts python3 ../tools/ui_sim/run.py /tmp/sim
 ```
 
+### Building the Windows app
+
+`volume-keeb.exe` is a one-file PyInstaller build. The [release workflow](#releases) makes it; to build it on a Windows machine, with Python 3.10+ on `PATH`, run from `host\`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build_windows.ps1
+```
+
+It lands in `host\dist\volume-keeb.exe`. To run from source instead: `pip install -r requirements.txt`, then `python volume_sync.py`.
+
 ### Raw HID protocol
 
 32-byte reports over QMK Raw HID. The command bytes and layouts are defined in both `host/volume_keeb/protocol.py` and `keymap.c` (whose comment above the `*_CMD` defines has the byte layout of each); keep them in sync.
@@ -228,3 +275,14 @@ The live copy is at https://joaopedropio.github.io/volume-keeb/. This repo holds
 ### Adding another encoder module
 
 The encoder is chosen with `encoder` in the `.scad`. Only `"hw040"` is measured (from `hw-040-encoder-module.stp` and `hw-040-module-dimensions.webp`). `"ky040"` deliberately fails an `assert` until real measurements are added to `enc_dims()`: PCB size and thickness, hole positions and diameter, shaft position, body size and height, bushing and shaft diameter and height, frame wall thicknesses and notches. Measure a real module; don't guess.
+
+## Releases
+
+`.github/workflows/release.yml` builds `volume-keeb.uf2` (in QMK's `qmk_cli` container, against the `qmk_firmware` tag in `QMK_REF`) and `volume-keeb.exe` (on a Windows runner, with `build_windows.ps1`). Pushing a `v*` tag also publishes a GitHub release with both files and the case's two STLs:
+
+```sh
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+The README links to `releases/latest/download/<file>`, so keep those file names. Running the workflow by hand from the Actions tab builds the same files as workflow artifacts without publishing anything. When moving to a newer QMK, bump `QMK_REF` and the clone command in [Building the firmware](#building-the-firmware) together.

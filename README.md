@@ -2,11 +2,11 @@
 
 A desk knob that works as a **per-app volume mixer**. Turn it to change the volume of Spotify, your browser, a game or the whole system. Click to pick an app, hold to mute, double-click to play/pause. A 2.79" bar-shaped LCD shows what's playing.
 
-It's built from cheap parts (a Waveshare RP2040-Zero, an HW-040 rotary encoder and a 2.79" NV3007 LCD) in a 3D-printed case, and runs [QMK](https://qmk.fm). A small Linux daemon tells the knob which apps are playing and applies what you do on it.
+It's built from cheap parts (a Waveshare RP2040-Zero, an HW-040 rotary encoder and a 2.79" NV3007 LCD) in a 3D-printed case, and runs [QMK](https://qmk.fm). A small host app for Linux and Windows tells the knob which apps are playing, applies what you do on it, and serves a settings page for themes, colors and fonts.
 
 **See the case in 3D: https://joaopedropio.github.io/volume-keeb/**
 
-This README is a step-by-step guide to building your own. If you want to change the firmware, the daemon or the case, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+This README is a step-by-step guide to building your own. If you want to change the firmware, the host app or the case, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Contents
 
@@ -15,14 +15,14 @@ This README is a step-by-step guide to building your own. If you want to change 
 - [Bill of materials](#bill-of-materials-)
 - [Tools](#tools-)
 - [Step 1: Print the case](#step-1-print-the-case-)
-- [Step 2: Build the firmware](#step-2-build-the-firmware-)
+- [Step 2: Download the software](#step-2-download-the-software-)
 - [Step 3: Flash the board](#step-3-flash-the-board-)
 - [Step 4: Wire it up](#step-4-wire-it-up-)
 - [Step 5: Test before closing](#step-5-test-before-closing-)
 - [Step 6: Assemble the case](#step-6-assemble-the-case-)
 - [Step 7: Set up the computer](#step-7-set-up-the-computer-)
-- [Using it](#using-it-)
 - [Settings page](#settings-page-)
+- [Using it](#using-it-)
 - [Themes](#themes-)
 - [Troubleshooting](#troubleshooting-)
 - [Credits](#credits-)
@@ -47,7 +47,8 @@ You also need:
 
 - Access to a 3D printer (or a printing service).
 - A soldering iron. There are no connectors or pin headers: every wire is soldered straight to the pads.
-- A Linux machine to build the firmware (macOS works too for building; see [Step 2](#step-2-build-the-firmware-)).
+
+You don't need to compile anything: the firmware and the Windows app come ready-made from the [releases page](https://github.com/joaopedropio/volume-keeb/releases/latest).
 
 ## Bill of materials [🔼](#contents)
 
@@ -75,7 +76,7 @@ You also need:
 
 ## Step 1: Print the case [🔼](#contents)
 
-Download the two STLs from the [`case/`](case/) folder:
+Download the two STLs from the [latest release](https://github.com/joaopedropio/volume-keeb/releases/latest) (they're also in the [`case/`](case/) folder):
 
 - [`volume_case-top.stl`](case/volume_case-top.stl): print with the **open side down**.
 - [`volume_case-base.stl`](case/volume_case-base.stl): print **flat**.
@@ -97,55 +98,23 @@ Do this **now**, before any electronics go in. It's much easier on an empty part
 
 Heat the insert with the iron and push it straight in until it's flush. Let it cool before touching it.
 
-## Step 2: Build the firmware [🔼](#contents)
+## Step 2: Download the software [🔼](#contents)
 
 > [!NOTE]
 > Flash the board and test each part as you wire it. If something is wrong, it's much easier to fix before the case is closed.
 
-### Install the toolchain
+Everything is on the [latest release](https://github.com/joaopedropio/volume-keeb/releases/latest) page, under **Assets**:
 
-**Ubuntu / Debian:**
+| File | What it is |
+|---|---|
+| [`volume-keeb.uf2`](https://github.com/joaopedropio/volume-keeb/releases/latest/download/volume-keeb.uf2) | The knob's firmware. |
+| [`volume-keeb.exe`](https://github.com/joaopedropio/volume-keeb/releases/latest/download/volume-keeb.exe) | The Windows app ([Step 7](#windows)). Linux users don't need it. |
+| `volume_case-top.stl`, `volume_case-base.stl` | The case ([Step 1](#step-1-print-the-case-)). |
 
-```sh
-sudo apt install -y git python3-pip pipx gcc-arm-none-eabi libnewlib-arm-none-eabi binutils-arm-none-eabi
-pipx install qmk
-pipx ensurepath   # then open a new terminal
-```
+Download `volume-keeb.uf2` now.
 
-**Arch:**
-
-```sh
-sudo pacman -S --needed git python-pip arm-none-eabi-gcc arm-none-eabi-newlib arm-none-eabi-binutils
-pip install --user qmk
-```
-
-**macOS:** `brew install qmk/qmk/qmk` installs the CLI and the toolchain.
-
-### Get QMK and this repo
-
-```sh
-git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/qmk/qmk_firmware.git ~/qmk_firmware
-qmk config user.qmk_home=$HOME/qmk_firmware
-
-git clone https://github.com/joaopedropio/volume-keeb.git ~/volume-keeb
-```
-
-Clone this repo (anywhere; `~/volume-keeb` in the examples).
-
-QMK only builds keyboards that live inside its own folder, so link this repo's keyboard definition into it:
-
-```sh
-ln -s ~/volume-keeb/qmk/waveshare_rp2040_zero_volume ~/qmk_firmware/keyboards/handwired/onekey/waveshare_rp2040_zero_volume
-```
-
-### Compile
-
-```sh
-cd ~/qmk_firmware
-qmk compile -kb handwired/onekey/waveshare_rp2040_zero_volume -km volume
-```
-
-This produces `handwired_onekey_waveshare_rp2040_zero_volume_volume.uf2` in `~/qmk_firmware`.
+> [!TIP]
+> Want to change the firmware (pins, screen offsets, themes)? [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#building-the-firmware) explains how to build it yourself.
 
 ## Step 3: Flash the board [🔼](#contents)
 
@@ -153,20 +122,12 @@ The RP2040 has a built-in bootloader that shows up as a USB drive, so flashing i
 
 1. Unplug the board.
 2. Hold the **BOOT** button and plug it in. Release once a drive named `RPI-RP2` appears.
-3. Copy the `.uf2` onto that drive:
-
-   ```sh
-   cp ~/qmk_firmware/handwired_onekey_waveshare_rp2040_zero_volume_volume.uf2 /media/$USER/RPI-RP2/      # Ubuntu
-   cp ~/qmk_firmware/handwired_onekey_waveshare_rp2040_zero_volume_volume.uf2 /run/media/$USER/RPI-RP2/  # Arch
-   cp ~/qmk_firmware/handwired_onekey_waveshare_rp2040_zero_volume_volume.uf2 /Volumes/RPI-RP2/          # macOS
-   ```
-
-   Or just drag it in with your file manager.
+3. Drag `volume-keeb.uf2` onto that drive with your file manager (Explorer, Finder, Files…).
 4. The board reboots by itself into the new firmware and the drive disappears.
 
 Once it's in the case, BOOT is pressed with a pin through the hole marked **`B`** under the case (**`R`** is RESET). To re-flash later: hold B, tap R, release B.
 
-Once this firmware is on the board and the [host setup](#step-7-set-up-the-computer-) is done, re-flashing needs no buttons: `./flash.sh` builds the firmware, tells the running knob to reboot into its bootloader and copies the `.uf2` onto the `RPI-RP2` drive (Linux).
+To update the firmware later on Linux, without buttons: download the new `volume-keeb.uf2` and run `~/volume-keeb/flash.sh ~/Downloads/volume-keeb.uf2` (after [Step 7](#step-7-set-up-the-computer-)). It tells the running knob to reboot into its bootloader and copies the file over.
 
 ## Step 4: Wire it up [🔼](#contents)
 
@@ -218,7 +179,7 @@ Use the [3D view](https://joaopedropio.github.io/volume-keeb/) to see where each
 
 Before anything is screwed down, plug the board in:
 
-1. The screen lights up and shows the UI. With no daemon running yet there are no apps to pick.
+1. The screen lights up and shows the UI. With no host app running yet there are no apps to pick.
 2. Do [Step 7](#step-7-set-up-the-computer-) on your computer now. `Master` and any app playing sound appear on the screen.
 3. Turning the knob moves the selection; clicking opens the app; turning changes its volume on the computer.
 
@@ -266,13 +227,11 @@ The tray icon needs a desktop with a system tray: GNOME needs the AppIndicator e
 
 ### Windows
 
-Build `volume-keeb.exe` once, with [Python](https://www.python.org/downloads/) 3.10 or newer installed. In PowerShell, from the repo's `host` folder:
+Download [`volume-keeb.exe`](https://github.com/joaopedropio/volume-keeb/releases/latest/download/volume-keeb.exe), put it anywhere you like (e.g. `Documents`) and run it. Nothing to install: no Python, no driver, no permission setup for the knob.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File build_windows.ps1
-```
+The `.exe` isn't signed, so the first time Windows SmartScreen says it "protected your PC": click **More info**, then **Run anyway**.
 
-Run `host\dist\volume-keeb.exe` (copy it anywhere you like first). The knob icon shows up in the tray; tick **Start with Windows** in its menu to have it run at login. Windows needs no driver or permission setup for the knob.
+The knob icon shows up in the tray; tick **Start with Windows** in its menu to have it run at login. To update, quit it from the tray icon and replace the `.exe` with the new one.
 
 ## Settings page [🔼](#contents)
 
@@ -295,7 +254,7 @@ The knob has two screens:
 | Double-click | — | Play/pause (apps with media controls) |
 | Click and hold | — | Mute / unmute |
 
-Long app names scroll. If the daemon stops (or the computer sleeps), the app list clears after 5 s and the knob goes back to the menu.
+Long app names scroll. If the host app stops (or the computer sleeps), the app list clears after 5 s and the knob goes back to the menu.
 
 ## Themes [🔼](#contents)
 
@@ -315,10 +274,10 @@ Pick one on the [settings page](#settings-page-), or from a terminal with `volum
 | No `RPI-RP2` drive appears | Use a data USB-C cable (not charge-only). Hold BOOT *before* plugging in. |
 | Screen stays black | `VCC`/`GND` on 3V3/GND; `BLK` on `GP0`. The screen also goes dark while the computer is suspended, so wake it. |
 | Screen lights up but shows garbage or nothing | `SCL`→`GP2` and `SDA`→`GP3` (SPI only works on those pins), `CS`/`DC`/`RST` on `GP1`/`GP4`/`GP5`. Shorter wires help. |
-| Image shifted, or a noisy strip on one edge | Adjust `LCD_OFFSET_X`/`LCD_OFFSET_Y` in `qmk/.../config.h` and rebuild. |
-| Colors inverted | Uncomment `NV3007_INVERT` in `config.h` and rebuild. |
-| UI upside down | Change `QP_ROTATION_90` to `QP_ROTATION_270` in `keymaps/volume/keymap.c` and rebuild. |
-| Knob turns the wrong way | Swap the `CLK` and `DT` wires (or `pin_a`/`pin_b` in `keyboard.json`). |
+| Image shifted, or a noisy strip on one edge | Adjust `LCD_OFFSET_X`/`LCD_OFFSET_Y` in `qmk/.../config.h` and [build the firmware yourself](docs/DEVELOPMENT.md#building-the-firmware). |
+| Colors inverted | Uncomment `NV3007_INVERT` in `config.h` and [rebuild](docs/DEVELOPMENT.md#building-the-firmware). |
+| UI upside down | Change `QP_ROTATION_90` to `QP_ROTATION_270` in `keymaps/volume/keymap.c` and [rebuild](docs/DEVELOPMENT.md#building-the-firmware). |
+| Knob turns the wrong way | Swap the `CLK` and `DT` wires (or `pin_a`/`pin_b` in `keyboard.json` and [rebuild](docs/DEVELOPMENT.md#building-the-firmware)). |
 | Turning skips or jumps | Check the `CLK`/`DT` joints; the HW-040's pull-ups need `+` on 3V3. |
 | Click does nothing | `SW` on `GP29`. |
 | Screen works but no apps appear | Is the host app running (`systemctl --user status volume-sync`, or the tray icon on Windows)? On Linux, did you install the udev rule and replug? `journalctl --user -u volume-sync` shows errors. |
