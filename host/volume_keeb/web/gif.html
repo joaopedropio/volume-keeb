@@ -127,13 +127,16 @@
 
   <section id="secScreen" class="off">
     <h2><b>3</b>Screen</h2>
-    <p class="lead">Each art pixel is shown as a square of screen pixels. Drag the frame (or click where it should go) to pick the part that ends up on the screen; scroll over it to change the scale.</p>
+    <p class="lead">Each art pixel is shown as a square of screen pixels. Drag the frame (or click where it should go) to pick the part that ends up on the screen; scroll over it to change the scale. An image bigger than the screen can also be shrunk to fit (scales under 1×), losing some of its pixels.</p>
     <div class="row">
       <label>Scale
         <select id="scale"></select>
       </label>
       <button id="fill">Fill screen</button>
       <button id="fit">Fit whole image</button>
+      <label id="smoothBox">Shrink by
+        <select id="smooth"><option value="1">averaging (smooth)</option><option value="0">dropping pixels (sharp)</option></select>
+      </label>
       <button id="center">Center</button>
       <label>Background <input type="color" id="bg" value="#000000"></label>
     </div>
@@ -192,7 +195,7 @@ const S = {
   name: 'saver', src: null, art: null,
   grid: { cell: 1, ox: 0, oy: 0 }, mode: 'dominant', colors: 0, merge: 24,
   view: 'result', flip: false, frame: 0,
-  scale: 1, x: 0, y: 0, bg: [0, 0, 0],
+  scale: 1, x: 0, y: 0, bg: [0, 0, 0], smooth: true,
   composed: [],
 };
 
@@ -341,8 +344,9 @@ function rebuild(fresh) {
   S.art.images = S.art.frames.map(f => new ImageData(f.rgba, S.art.w, S.art.h));
   fillScales();
   if (fresh) {
-    S.scale = fillScale();
-    $('scale').value = S.scale;
+    // An image bigger than the screen starts shrunk to fit, a smaller one filling it.
+    S.scale = S.art.w > SCREEN_W || S.art.h > SCREEN_H ? fitScale() : fillScale();
+    fillScales();
     centerCrop();
   } else {
     S.x = Math.round(relX * S.art.w - cropW() / 2);
@@ -422,15 +426,34 @@ $('merge').addEventListener('change', e => { S.merge = +e.target.value; rebuild(
 const cropW = () => SCREEN_W / S.scale;
 const cropH = () => SCREEN_H / S.scale;
 const fillScale = () => Math.max(1, Math.ceil(Math.max(SCREEN_W / S.art.w, SCREEN_H / S.art.h) - 1e-9));
-const fitScale = () => Math.max(1, Math.floor(Math.min(SCREEN_W / S.art.w, SCREEN_H / S.art.h)));
+// Whole screen pixels per art pixel when the art fits, otherwise the exact shrink.
+const fitScale = () => {
+  const f = Math.min(SCREEN_W / S.art.w, SCREEN_H / S.art.h);
+  return f >= 1 ? Math.floor(f) : f;
+};
+const SHRINKS = [3 / 4, 2 / 3, 1 / 2, 1 / 3, 1 / 4, 1 / 5, 1 / 6, 1 / 8];
+
+// The scales on offer, smallest first: shrinks down to the one that fits the
+// whole image (when it's bigger than the screen), then 1x up.
+function scaleChoices() {
+  const fit = Math.min(SCREEN_W / S.art.w, SCREEN_H / S.art.h);
+  const list = fit < 1 ? [fit, ...SHRINKS.filter(s => s > fit + 0.01).reverse()] : [];
+  for (let s = 1; s <= Math.max(16, fillScale()); s++) list.push(s);
+  return list;
+}
+
+const scaleName = s => s >= 1 ? `${s}×` : `${+s.toFixed(2)}×`;
 
 function fillScales() {
-  const sel = $('scale'), max = Math.max(16, fillScale());
-  S.scale = Math.min(S.scale, max);
-  if (sel.options.length === max) return;
+  const sel = $('scale'), list = scaleChoices();
+  if (!list.includes(S.scale)) S.scale = list.reduce((a, b) => (Math.abs(b - S.scale) < Math.abs(a - S.scale) ? b : a));
   sel.innerHTML = '';
-  for (let s = 1; s <= max; s++) sel.add(new Option(`${s}× (${Math.ceil(SCREEN_W / s)} × ${Math.ceil(SCREEN_H / s)} art px)`, s));
+  for (const s of list) {
+    const label = s < 1 && s === list[0] ? `${scaleName(s)} fit (${S.art.w} × ${S.art.h} art px)` : `${scaleName(s)} (${Math.ceil(SCREEN_W / s)} × ${Math.ceil(SCREEN_H / s)} art px)`;
+    sel.add(new Option(label, s));
+  }
   sel.value = S.scale;
+  $('smoothBox').hidden = S.scale >= 1;
 }
 
 // The frame stays inside the image when it's smaller, the image inside the
@@ -450,11 +473,11 @@ function centerCrop() {
 }
 
 function setScale(s, keepCenter = true) {
-  s = Math.max(1, Math.min($('scale').options.length, s));
   if (s === S.scale) return;
   const cx = S.x + cropW() / 2, cy = S.y + cropH() / 2;
   S.scale = s;
   $('scale').value = s;
+  $('smoothBox').hidden = s >= 1;
   if (keepCenter) { S.x = cx - cropW() / 2; S.y = cy - cropH() / 2; }
   clampCrop();
   cropChanged();
@@ -500,8 +523,8 @@ function drawCrop() {
   x.lineWidth = 2 / q;
   x.strokeRect(S.x, S.y, rw, rh);
   const outside = rw > art.w || rh > art.h;
-  $('cropInfo').innerHTML = `Scale <b>${S.scale}×</b>: the screen shows <b>${+rw.toFixed(2)} × ${+rh.toFixed(2)}</b> art pixels, from (${S.x}, ${S.y}).` +
-    (rw % 1 || rh % 1 ? ' The last column/row is cut partway.' : '') +
+  $('cropInfo').innerHTML = `Scale <b>${scaleName(S.scale)}</b>: the screen shows <b>${+rw.toFixed(2)} × ${+rh.toFixed(2)}</b> art pixels, from (${S.x}, ${S.y}).` +
+    (S.scale < 1 ? ` Shrunk: each screen pixel ${S.smooth ? 'averages' : 'keeps one of'} the art pixels it covers.` : rw % 1 || rh % 1 ? ' The last column/row is cut partway.' : '') +
     (outside ? ' The image doesn\'t cover the whole screen; the rest is the background color.' : '');
 }
 
@@ -527,9 +550,11 @@ $('crop').addEventListener('pointermove', e => {
 $('crop').addEventListener('pointerup', () => { drag = null; $('crop').classList.remove('drag'); });
 $('crop').addEventListener('wheel', e => {
   e.preventDefault();
-  setScale(S.scale + (e.deltaY < 0 ? 1 : -1));
+  const list = scaleChoices(), i = list.indexOf(S.scale) + (e.deltaY < 0 ? 1 : -1);
+  if (i >= 0 && i < list.length) setScale(list[i]);
 }, { passive: false });
-$('scale').addEventListener('change', e => setScale(+e.target.value));
+$('scale').addEventListener('change', e => setScale(scaleChoices()[e.target.selectedIndex]));
+$('smooth').addEventListener('change', e => { S.smooth = e.target.value === '1'; cropChanged(); });
 $('fill').addEventListener('click', () => { setScale(fillScale()); });
 $('fit').addEventListener('click', () => { setScale(fitScale()); centerCrop(); cropChanged(); });
 $('center').addEventListener('click', () => { centerCrop(); cropChanged(); });
@@ -544,7 +569,7 @@ addEventListener('resize', () => { if (S.art) { drawGrid(); drawCrop(); } });
 
 function screenFrame(f) {
   if (!S.composed[f])
-    S.composed[f] = Pixel.compose(S.art, S.art.frames[f].rgba, S.x, S.y, S.scale, SCREEN_W, SCREEN_H, S.bg);
+    S.composed[f] = Pixel.compose(S.art, S.art.frames[f].rgba, S.x, S.y, S.scale, SCREEN_W, SCREEN_H, S.bg, S.smooth);
   return S.composed[f];
 }
 
@@ -603,7 +628,7 @@ $('saveScreen').addEventListener('click', () => {
 $('saveArt').addEventListener('click', () => {
   const w = Math.ceil(cropW()), h = Math.ceil(cropH());
   const frames = S.art.frames.map(f => Pixel.compose(S.art, f.rgba, S.x, S.y, 1, w, h, S.bg));
-  saveGif(w, h, frames, `${S.name}_${w}x${h}_x${S.scale}.gif`);
+  saveGif(w, h, frames, `${S.name}_${w}x${h}_x${S.scale >= 1 ? S.scale : 1}.gif`);
 });
 
 // ---------- send to the knob ----------
@@ -620,20 +645,22 @@ async function api(method, path, body) {
   return data;
 }
 
-// The art pixels the screen shows, one GIF frame in every `every`.
+// The art pixels the screen shows (shrunk, the screen's pixels), one GIF
+// frame in every `every`.
 function encodeKva() {
-  const w = Math.min(SCREEN_W, Math.ceil(cropW())), h = Math.min(SCREEN_H, Math.ceil(cropH()));
+  const shrunk = S.scale < 1;
+  const w = shrunk ? SCREEN_W : Math.min(SCREEN_W, Math.ceil(cropW())), h = shrunk ? SCREEN_H : Math.min(SCREEN_H, Math.ceil(cropH()));
   const every = +$('every').value;
   const frames = [], delays = [];
   S.art.frames.forEach((f, i) => {
     if (i % every === 0) {
-      frames.push(Pixel.compose(S.art, f.rgba, S.x, S.y, 1, w, h, S.bg));
+      frames.push(shrunk ? screenFrame(i) : Pixel.compose(S.art, f.rgba, S.x, S.y, 1, w, h, S.bg));
       delays.push(f.delay);
     } else {
       delays[delays.length - 1] += f.delay;
     }
   });
-  return Kva.encode(w, h, S.scale, frames, delays);
+  return Kva.encode(w, h, shrunk ? 1 : S.scale, frames, delays);
 }
 
 let measureTimer = 0;

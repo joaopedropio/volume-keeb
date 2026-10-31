@@ -178,9 +178,12 @@ const Pixel = (() => {
     return { w, h, startX: ax.start, startY: ay.start, frames: frames.map((rgba, f) => ({ rgba, delay: src.frames[f].delay })) };
   }
 
-  // The w x h window of art pixels starting at (x, y), each drawn scale x scale,
+  // The window of art pixels starting at (x, y), each drawn scale x scale,
   // cut to outW x outH; anything outside the art (or transparent) is bg [r,g,b].
-  function compose(art, rgba, x, y, scale, outW, outH, bg) {
+  // A scale under 1 shrinks the art: each screen pixel takes one art pixel,
+  // or with smooth, the average of all it covers.
+  function compose(art, rgba, x, y, scale, outW, outH, bg, smooth = false) {
+    if (scale < 1 && smooth) return shrink(art, rgba, x, y, scale, outW, outH, bg);
     const out = new Uint8ClampedArray(outW * outH * 4);
     for (let Y = 0, o = 0; Y < outH; Y++) {
       const ay = Math.floor(Y / scale) + y;
@@ -196,6 +199,33 @@ const Pixel = (() => {
         out[o + 3] = 255;
       }
     }
+    return out;
+  }
+
+  // Which art pixels [lo, hi) each of n screen pixels covers at scale < 1.
+  function spans(n, from, scale) {
+    const lo = new Int32Array(n), hi = new Int32Array(n);
+    for (let i = 0; i < n; i++) {
+      lo[i] = Math.floor(from + i / scale + 1e-6);
+      hi[i] = Math.max(lo[i] + 1, Math.floor(from + (i + 1) / scale + 1e-6));
+    }
+    return [lo, hi];
+  }
+
+  function shrink(art, rgba, x, y, scale, outW, outH, bg) {
+    const out = new Uint8ClampedArray(outW * outH * 4);
+    const [x0, x1] = spans(outW, x, scale), [y0, y1] = spans(outH, y, scale);
+    for (let Y = 0, o = 0; Y < outH; Y++)
+      for (let X = 0; X < outW; X++, o += 4) {
+        let r = 0, g = 0, b = 0, n = 0;
+        for (let ay = y0[Y]; ay < y1[Y]; ay++)
+          for (let ax = x0[X]; ax < x1[X]; ax++, n++) {
+            const k = (ay * art.w + ax) * 4;
+            if (ay < 0 || ay >= art.h || ax < 0 || ax >= art.w || rgba[k + 3] < 128) { r += bg[0]; g += bg[1]; b += bg[2]; }
+            else { r += rgba[k]; g += rgba[k + 1]; b += rgba[k + 2]; }
+          }
+        out[o] = r / n; out[o + 1] = g / n; out[o + 2] = b / n; out[o + 3] = 255;
+      }
     return out;
   }
 
