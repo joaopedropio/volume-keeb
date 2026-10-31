@@ -98,7 +98,7 @@ int main(int argc, char **argv) {
     }
 
     // Idle long enough for the screensaver, then a few frames of the drive.
-    tick(DISPLAY_TIMEOUT_MS + 100);
+    tick(SAVER_AFTER_MS_DEFAULT + 100);
     for (int f = 0; f < 6; f++) {
         snprintf(name, sizeof(name), "saver_%d", f); dump(name);
         tick(f % 2 ? 1300 : 120);
@@ -106,6 +106,33 @@ int main(int argc, char **argv) {
     turn(true); // the knob stops it without changing anything
     tick(20);
     dump("saver_stopped");
+
+    // Every other screensaver, previewed from the host, in two themes.
+    static const char *const saver_names[] = {"none", "drive", "stars", "rain", "plasma", "bounce"};
+    static const uint8_t saver_themes[] = {3, 1};
+    for (uint8_t ti = 0; ti < sizeof(saver_themes); ti++) {
+        uint8_t th[RAW_EPSIZE] = {THEME_CMD, saver_themes[ti]};
+        raw_hid_receive(th, sizeof(th));
+        for (uint8_t k = SAVER_STARS; k < SAVER_COUNT; k++) {
+            uint8_t p[RAW_EPSIZE] = {SCREEN_CMD, k, 30, 0, 0, 0, 1};
+            raw_hid_receive(p, sizeof(p));
+            for (int f = 0; f < 3; f++) {
+                send_snapshot(); // keeps the host fresh, so the bounce has a title
+                tick(f ? 1500 : 600);
+                snprintf(name, sizeof(name), "saver_%s_t%u_%d", saver_names[k], saver_themes[ti], f); dump(name);
+            }
+            turn(true);
+            tick(20);
+        }
+    }
+
+    // Off after 60 s with no screensaver: the UI stays until then.
+    uint8_t p[RAW_EPSIZE] = {SCREEN_CMD, SAVER_NONE, 30, 0, 60, 0, 0};
+    raw_hid_receive(p, sizeof(p));
+    tick(45000);
+    dump("idle_45s_no_saver");
+    tick(20000);
+    dump("idle_65s_off");
     return 0;
 }
 

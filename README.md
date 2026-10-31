@@ -33,7 +33,7 @@ This README is a step-by-step guide to building your own. If you want to change 
 - **Media info**: the title of what's playing (from MPRIS on Linux, the media overlay's sessions on Windows: Spotify, browsers, most media players) shown large on the screen.
 - **Play/pause and mute** from the knob.
 - **Themes, colors and fonts from a settings page**: four preset themes, `neon` (synthwave), `terminal` (green phosphor), `neobrutal` (cream, black and orange, hard shadows) and `winamp` (the classic Winamp skin), any color you like on top, and your own TrueType/OpenType fonts. The page runs on your computer and opens from a tray icon, like Jellyfin's.
-- **Screen saver**: after 30 s without touching the knob, the screen plays an endless synthwave drive (a car on a road through a striped sea, palm trees going by, a city in front of the sun). Turning or pressing the knob brings the UI back; that first touch does nothing else. The screen only goes dark while the computer is suspended.
+- **Screensavers**: after a while without touching the knob (30 s by default), the screen plays one of five animations: a synthwave drive (a car on a road through a striped sea, palm trees going by, a city in front of the sun), a flight through the stars, Matrix-style rain, a plasma in your theme's colors, or what's playing bouncing around. You can turn the screensaver off, and have the screen go dark after a set time. Turning or pressing the knob brings the UI back; that first touch does nothing else. The screen also goes dark while the computer is suspended.
 - **Wakes the computer** from suspend.
 - **Linux and Windows.**
 - **No drivers**: it's a plain USB HID device.
@@ -236,6 +236,7 @@ The knob icon shows up in the tray; tick **Start with Windows** in its menu to h
 ## Settings page [🔼](#contents)
 
 - **Theme**: pick a preset, then change any of its six colors (background, panel, text, secondary, accent, muted) or its style (flat, boxed, bevel, neon). Changes show on the knob as you make them.
+- **Screen**: pick a screensaver (or none), how long the knob sits untouched before it starts, and whether the screen turns off after a while (never, by default). **Show on the knob** starts it right away so you can see it.
 - **Fonts**: the header, the song title and the menu list each take their own font. Choose a `.ttf`/`.otf` file and a bit depth (1-bit for pixel fonts, 2- or 4-bit for smooth ones), check the preview and upload it. The app sizes it to fit, converts it and stores it in the knob's flash, where it stays across reboots and firmware updates. **Use built-in** goes back to the original font. Only basic ASCII is shown; accented letters lose their accents.
 
 Settings are saved on the computer (`~/.config/volume-keeb` or `%APPDATA%\volume-keeb`) and sent to the knob whenever it's plugged in, so a knob moved to another computer takes that computer's settings.
@@ -272,7 +273,7 @@ Pick one on the [settings page](#settings-page-), or from a terminal with `volum
 | Symptom | What to check |
 |---|---|
 | No `RPI-RP2` drive appears | Use a data USB-C cable (not charge-only). Hold BOOT *before* plugging in. |
-| Screen stays black | `VCC`/`GND` on 3V3/GND; `BLK` on `GP0`. The screen also goes dark while the computer is suspended, so wake it. |
+| Screen stays black | `VCC`/`GND` on 3V3/GND; `BLK` on `GP0`. The screen also goes dark while the computer is suspended, and after the time set under **Screen** on the settings page: turn the knob. |
 | Screen lights up but shows garbage or nothing | `SCL`→`GP2` and `SDA`→`GP3` (SPI only works on those pins), `CS`/`DC`/`RST` on `GP1`/`GP4`/`GP5`. Shorter wires help. |
 | Image shifted, or a noisy strip on one edge | Adjust `LCD_OFFSET_X`/`LCD_OFFSET_Y` in `qmk/.../config.h` and [build the firmware yourself](docs/DEVELOPMENT.md#building-the-firmware). |
 | Colors inverted | Uncomment `NV3007_INVERT` in `config.h` and [rebuild](docs/DEVELOPMENT.md#building-the-firmware). |

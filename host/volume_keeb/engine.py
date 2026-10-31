@@ -1,5 +1,5 @@
-"""Keeps the knob in step with the computer: pushes the app list, the look
-and the fonts, and applies what the knob sends back.
+"""Keeps the knob in step with the computer: pushes the app list, the look,
+the screensaver settings and the fonts, and applies what the knob sends back.
 
 Two threads: one reads the knob (and finds it again after an unplug), one
 does everything that touches the audio system -- collecting the app list
@@ -17,7 +17,7 @@ from .knob import Knob
 from .protocol import (
     CTRL_CMD, FONT_CLEAR_CMD, FONT_END_CMD, FONT_INFO_CMD, FONT_QUERY_CMD, FONT_SLOTS, FONT_STATUS,
     FONT_STATUS_CMD, HEARTBEAT_S, THEME_IDS, THEME_CMD, app_packets, font_begin_packet, font_data_packets,
-    palette_packet, parse_font_info,
+    palette_packet, parse_font_info, screen_packet,
 )
 
 
@@ -75,6 +75,7 @@ class Engine:
             if self.need_setup:
                 self.need_setup = False
                 self.push_theme()
+                self.push_screen()
                 self.sync_fonts()
                 last_packets = None
             while not self.actions.empty():
@@ -106,6 +107,10 @@ class Engine:
             # Firmware from before PALETTE_CMD ignores it but knows the presets.
             self.knob.write(bytes([THEME_CMD, THEME_IDS[d["preset"]]]))
         self.knob.write(palette_packet(d["colors"], d["decor"]))
+
+    def push_screen(self, preview=False):
+        s = self.config.data["screen"]
+        self.knob.write(screen_packet(s["saver"], s["saver_after"], s["off_after"], preview))
 
     # -- fonts -----------------------------------------------------------
 

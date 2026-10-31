@@ -120,6 +120,39 @@
   .color small { color: var(--muted); font-size: 12px; }
   .color code { font-size: 12px; color: var(--muted); }
 
+  /* screen */
+  .savers { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 20px; }
+  .saver {
+    border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2);
+    padding: 10px; cursor: pointer; text-align: left; color: var(--text); font: inherit;
+  }
+  .saver.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .saver .thumb {
+    height: 40px; border-radius: 4px; margin-bottom: 8px; overflow: hidden;
+    border: 1px solid rgba(127,127,127,.25); background: #000;
+    display: flex; align-items: center; justify-content: center;
+    font: 700 11px/1 "DejaVu Sans Mono", Menlo, Consolas, monospace; color: #3ce6ff;
+  }
+  .saver b { display: block; font-size: 13px; font-weight: 600; }
+  .saver small { color: var(--muted); font-size: 12px; }
+  .thumb.none { background: var(--panel); color: var(--muted); font-weight: 400; }
+  .thumb.drive {
+    background:
+      radial-gradient(circle at 50% 100%, #ffe628 0 22%, #ff4690 23% 30%, transparent 31%) no-repeat 50% 0 / 100% 55%,
+      linear-gradient(transparent 55%, #ff8418 55%),
+      linear-gradient(#3c106e, #ff786e 55%);
+  }
+  .thumb.stars {
+    background:
+      radial-gradient(1.5px 1.5px at 20% 30%, #fff, transparent), radial-gradient(1.5px 1.5px at 70% 60%, #3ce6ff, transparent),
+      radial-gradient(1px 1px at 40% 80%, #ff4fb8, transparent), radial-gradient(1px 1px at 85% 20%, #fff, transparent),
+      radial-gradient(1px 1px at 10% 70%, #3ce6ff, transparent), radial-gradient(1.5px 1.5px at 55% 15%, #fff, transparent), #000;
+  }
+  .thumb.rain { color: #4ade80; letter-spacing: 4px; font-size: 13px; background: linear-gradient(#000, #032a10); }
+  .thumb.plasma { background: radial-gradient(circle at 30% 40%, #ff4fb8, transparent 45%), radial-gradient(circle at 75% 60%, #3ce6ff, transparent 50%), #2a0a4a; }
+  .settings-row { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-end; }
+  .settings-row label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
+
   /* fonts */
   .fonts { display: grid; gap: 12px; }
   .font {
@@ -193,6 +226,18 @@
   </section>
 
   <section>
+    <h2>Screen</h2>
+    <p class="hint">What the knob shows while you aren't using it. Turning or pressing the knob brings the controls back; that first touch does nothing else.</p>
+    <div class="savers" id="savers"></div>
+    <div class="settings-row">
+      <label>Start the screensaver after <select id="saver-after"></select></label>
+      <label>Turn the screen off after <select id="off-after"></select></label>
+      <button class="btn" id="saver-preview">Show on the knob</button>
+    </div>
+    <p class="msg" id="screen-msg"></p>
+  </section>
+
+  <section>
     <h2>Fonts</h2>
     <p class="hint">Upload any TrueType or OpenType font. It's resized to fit each spot on the screen, converted on this computer and stored in the knob's flash, so it stays after a reboot. Characters outside basic ASCII (accents and so on) show as their plain letters.</p>
     <div class="fonts" id="fonts"></div>
@@ -211,10 +256,21 @@ const COLOR_INFO = {
   mute: ["Muted", "The MUTE label"],
 };
 const DECOR_LABEL = { flat: "Flat", boxed: "Boxed", bevel: "Bevel", neon: "Neon" };
+const SAVER_INFO = {
+  none: ["None", "Keep showing the controls", "—"],
+  drive: ["Drive", "A synthwave drive at sunset", ""],
+  stars: ["Stars", "Flying through space", ""],
+  rain: ["Rain", "Falling glyphs, Matrix-style", "ｱ3ﾘ7ｶ0ﾊ"],
+  plasma: ["Plasma", "Slow waves in your theme's colors", ""],
+  bounce: ["Bounce", "What's playing, bouncing around", "♪ title"],
+};
+const SAVER_AFTER = [15, 30, 60, 120, 300, 600, 900, 1800, 3600];
+const OFF_AFTER = [0, 60, 300, 600, 900, 1800, 3600, 7200, 14400];
 const BUILTIN_FONT = '"DejaVu Sans Mono", Menlo, Consolas, monospace';
 
 let state = null;
 let theme = null;        // {preset, decor, colors}
+let screen = null;       // {saver, saver_after, off_after}
 let screenKind = "app";
 const fontFaces = {};    // slot -> CSS family for the preview, when custom
 
@@ -500,6 +556,69 @@ function renderColors() {
 
 function renderTheme() { renderPresets(); renderDecor(); renderColors(); }
 
+// ---- screen ------------------------------------------------------------------
+
+function duration(sec) {
+  if (!sec) return "Never";
+  if (sec < 60) return `${sec} seconds`;
+  if (sec < 3600) return sec === 60 ? "1 minute" : `${sec / 60} minutes`;
+  return sec === 3600 ? "1 hour" : `${sec / 3600} hours`;
+}
+
+function fillSelect(sel, choices, value, onchange) {
+  sel.innerHTML = "";
+  const all = choices.includes(value) ? choices : [...choices, value].sort((a, b) => (a || Infinity) - (b || Infinity));
+  for (const v of all) {
+    const o = document.createElement("option");
+    o.value = v;
+    o.textContent = duration(v);
+    o.selected = v === value;
+    sel.append(o);
+  }
+  sel.onchange = () => onchange(Number(sel.value));
+}
+
+let screenTimer = null;
+function saveScreen() {
+  clearTimeout(screenTimer);
+  screenTimer = setTimeout(() => {
+    api("PUT", "/api/screen", JSON.stringify(screen), { "Content-Type": "application/json" })
+      .catch(e => setStatus("bad", `Couldn't save: ${e.message}`));
+  }, 120);
+}
+
+function renderScreen() {
+  const box = document.getElementById("savers");
+  box.innerHTML = "";
+  for (const name of state.savers) {
+    const [label, desc, art] = SAVER_INFO[name] || [name, "", ""];
+    const b = document.createElement("button");
+    b.className = "saver" + (screen.saver === name ? " on" : "");
+    b.innerHTML = `<div class="thumb ${name}"></div><b></b><small></small>`;
+    b.querySelector(".thumb").textContent = art;
+    b.querySelector("b").textContent = label;
+    b.querySelector("small").textContent = desc;
+    b.onclick = () => { screen.saver = name; renderScreen(); saveScreen(); };
+    box.append(b);
+  }
+  const after = document.getElementById("saver-after");
+  fillSelect(after, SAVER_AFTER, screen.saver_after, v => { screen.saver_after = v; renderScreen(); saveScreen(); });
+  after.disabled = screen.saver === "none";
+  fillSelect(document.getElementById("off-after"), OFF_AFTER, screen.off_after, v => { screen.off_after = v; renderScreen(); saveScreen(); });
+  const preview = document.getElementById("saver-preview");
+  preview.disabled = screen.saver === "none" || !state.connected;
+  const msg = document.getElementById("screen-msg");
+  msg.textContent = screen.saver !== "none" && screen.off_after && screen.off_after <= screen.saver_after
+    ? "The screen turns off before the screensaver would start, so it never shows." : "";
+}
+
+document.getElementById("saver-preview").onclick = () => {
+  clearTimeout(screenTimer);
+  api("PUT", "/api/screen", JSON.stringify(screen), { "Content-Type": "application/json" })
+    .then(() => api("POST", "/api/screen/preview"))
+    .catch(e => setStatus("bad", `Couldn't reach the knob: ${e.message}`));
+};
+
 // ---- fonts -------------------------------------------------------------------
 
 async function loadFontFace(slot) {
@@ -675,9 +794,11 @@ function showConnection(s) {
 async function poll() {
   try {
     const s = await api("GET", "/api/state");
+    const was = state.connected;
     state.connected = s.connected;
     state.fonts_supported = s.fonts_supported;
     showConnection(s);
+    if (was !== s.connected) renderScreen();
   } catch {
     setStatus("bad", "volume-keeb isn't running");
   }
@@ -699,8 +820,10 @@ document.getElementById("screen-pick").onclick = e => {
     return;
   }
   theme = structuredClone(state.theme);
+  screen = structuredClone(state.screen);
   showConnection(state);
   renderTheme();
+  renderScreen();
   renderFonts();
   await Promise.all(Object.keys(state.fonts).map(loadFontFace));
   await document.fonts.ready;

@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, urlparse
 
 from . import qff
 from .engine import FontUploadError
-from .protocol import COLOR_FIELDS, DECORS, FONT_SLOTS, PRESETS
+from .protocol import COLOR_FIELDS, DECORS, FONT_SLOTS, PRESETS, SAVERS
 from .tray import icon_png
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -92,6 +92,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(self._state())
             if method == "PUT" and url.path == "/api/theme":
                 return self._put_theme()
+            if method == "PUT" and url.path == "/api/screen":
+                return self._put_screen()
+            if method == "POST" and url.path == "/api/screen/preview":
+                self.engine.push_screen(preview=True)
+                return self._json({"ok": True})
             if m and method == "GET" and m.group(2) == "/source":
                 return self._send(200, self.config.font_path(m.group(1), "src").read_bytes(), "application/octet-stream")
             if m and method == "GET" and m.group(2) == "/preview.png":
@@ -136,6 +141,8 @@ class Handler(BaseHTTPRequestHandler):
             "connected": self.engine.knob.connected,
             "fonts_supported": self.engine.fonts_supported,
             "theme": {"preset": d["preset"], "decor": d["decor"], "colors": d["colors"]},
+            "screen": d["screen"],
+            "savers": SAVERS,
             "presets": PRESETS,
             "decors": DECORS,
             "color_fields": COLOR_FIELDS,
@@ -148,6 +155,11 @@ class Handler(BaseHTTPRequestHandler):
         body = json.loads(self._body(4096) or b"{}")
         self.config.set_theme(body.get("colors"), body.get("decor"), body.get("preset", ""))
         self.engine.push_theme()
+        self._json({"ok": True})
+
+    def _put_screen(self):
+        self.config.set_screen(json.loads(self._body(4096) or b"{}"))
+        self.engine.push_screen()
         self._json({"ok": True})
 
     def _preview(self, slot, font_bytes, query):

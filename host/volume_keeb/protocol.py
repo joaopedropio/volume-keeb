@@ -22,6 +22,7 @@ FONT_DATA_CMD = 0x67
 FONT_END_CMD = 0x68
 FONT_CLEAR_CMD = 0x69
 FONT_QUERY_CMD = 0x6A
+SCREEN_CMD = 0x6B
 CTRL_CMD = 0x70
 FONT_STATUS_CMD = 0x71
 FONT_INFO_CMD = 0x72
@@ -38,6 +39,9 @@ HEARTBEAT_S = 2  # firmware shows "no host" after 5 s without a packet
 # Palette fields in theme_t's order, and decor_t's values.
 COLOR_FIELDS = ("bg", "well", "fg", "dim", "accent", "mute")
 DECORS = ("flat", "boxed", "bevel", "neon")
+
+# saver_t's values, in order.
+SAVERS = ("none", "drive", "stars", "rain", "plasma", "bounce")
 
 # keymap.c's `themes[]`, as H,S,V in QMK's 0-255 ranges -- the presets the
 # settings page starts from. HSV_GREEN = 85,255,255; HSV_RED = 0,255,255.
@@ -84,6 +88,12 @@ def palette_packet(colors, decor):
     for field in COLOR_FIELDS:
         payload += bytes(colors[field])
     return payload + bytes([DECORS.index(decor)])
+
+
+def screen_packet(saver, saver_after, off_after, preview=False):
+    """The screensaver kind, and the seconds until it starts and until the
+    screen turns off (0 = never)."""
+    return bytes([SCREEN_CMD, SAVERS.index(saver)]) + struct.pack("<HH", saver_after, off_after) + bytes([int(preview)])
 
 
 def app_packets(apps):

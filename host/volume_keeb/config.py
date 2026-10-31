@@ -1,5 +1,5 @@
-"""Settings kept between runs: the look (palette + decor) and the uploaded
-fonts, in a JSON file plus the font files next to it.
+"""Settings kept between runs: the look (palette + decor), the screen's idle
+behaviour and the uploaded fonts, in a JSON file plus the font files next to it.
 
 Linux: $XDG_CONFIG_HOME/volume-keeb (~/.config/volume-keeb)
 Windows: %APPDATA%\\volume-keeb
@@ -11,10 +11,12 @@ import sys
 import threading
 from pathlib import Path
 
-from .protocol import COLOR_FIELDS, DECORS, FONT_SLOTS, PRESETS
+from .protocol import COLOR_FIELDS, DECORS, FONT_SLOTS, PRESETS, SAVERS
 
 DEFAULT_PRESET = "neon"
 DEFAULT_PORT = 8137
+DEFAULT_SCREEN = {"saver": "drive", "saver_after": 30, "off_after": 0}  # seconds; 0 = never
+MAX_SECONDS = 65535  # SCREEN_CMD's 16-bit fields
 
 
 def config_dir():
@@ -31,10 +33,17 @@ def _defaults():
         "preset": DEFAULT_PRESET,  # what the colors started from; "" once edited
         "decor": preset["decor"],
         "colors": copy.deepcopy(preset["colors"]),
+        "screen": dict(DEFAULT_SCREEN),
         # slot -> {"name": original file name, "format": mono2/4/16, "size": pt, "crc": of the QFF}
         "fonts": {},
         "port": DEFAULT_PORT,
     }
+
+
+def _valid_screen(v):
+    return (isinstance(v, dict) and v.get("saver") in SAVERS
+            and all(isinstance(v.get(k), int) and 0 <= v[k] <= MAX_SECONDS for k in ("saver_after", "off_after"))
+            and v["saver_after"] >= 1)
 
 
 def _valid_hsv(v):
@@ -63,6 +72,9 @@ class Config:
             d["decor"] = PRESETS[DEFAULT_PRESET]["decor"]
         colors = d["colors"] if isinstance(d["colors"], dict) else {}
         d["colors"] = {f: colors[f] if _valid_hsv(colors.get(f)) else PRESETS[DEFAULT_PRESET]["colors"][f] for f in COLOR_FIELDS}
+        if not _valid_screen(d["screen"]):
+            d["screen"] = dict(DEFAULT_SCREEN)
+        d["screen"] = {k: d["screen"][k] for k in DEFAULT_SCREEN}
         fonts = d["fonts"] if isinstance(d["fonts"], dict) else {}
         d["fonts"] = {s: v for s, v in fonts.items() if s in FONT_SLOTS and self.font_path(s, "qff").exists()}
 
@@ -82,6 +94,13 @@ class Config:
             raise ValueError("bad theme")
         with self.lock:
             self.data.update(colors=colors, decor=decor, preset=preset if preset in PRESETS else "")
+            self.save()
+
+    def set_screen(self, screen):
+        if not _valid_screen(screen):
+            raise ValueError("bad screen settings")
+        with self.lock:
+            self.data["screen"] = {k: screen[k] for k in DEFAULT_SCREEN}
             self.save()
 
     def set_font(self, slot, font_bytes, qff, info):

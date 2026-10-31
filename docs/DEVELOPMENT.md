@@ -132,7 +132,7 @@ All in `keymaps/volume/keymap.c`:
 | `VOLUME_STEP` | `5` | Percent per encoder detent. |
 | `HOLD_MS` | `500` | Click-and-hold time for mute. |
 | `DOUBLE_CLICK_MS` | `300` | Window for a double-click (play/pause). |
-| `DISPLAY_TIMEOUT_MS` | `30000` | Time without knob input (host updates don't count) before the screensaver starts: a synthwave drive drawn in 2x2-pixel blocks straight into the framebuffer every `SAVER_FRAME_MS`, sent to the panel from the horizon (or the tallest palm) down. The first turn or click only stops it. Quantum Painter's own timeout is disabled in `config.h` (`QUANTUM_PAINTER_DISPLAY_TIMEOUT 0`): it sends DISPOFF, which turns the lit NV3007 white and fades it out slowly. |
+| `SAVER_AFTER_MS_DEFAULT` | `30000` | Time without knob input (host updates don't count; a host wakeup restarts it) before the screensaver starts, until a host sends its own setting with `SCREEN_CMD`. The settings page also picks the screensaver (`saver_t`: none, drive, stars, rain, plasma, bounce) and a time after which the backlight goes off (default never). Every `SAVER_FRAME_MS` the drive, stars, rain and plasma draw straight into the framebuffer and send it to the panel (the drive only from the horizon or the tallest palm down); the bounce moves its text through the framebuffer like the UI does. All but the drive take their colors from the theme. The first turn or click after a screensaver or a dark screen only wakes it. Quantum Painter's own timeout is disabled in `config.h` (`QUANTUM_PAINTER_DISPLAY_TIMEOUT 0`): it sends DISPOFF, which turns the lit NV3007 white and fades it out slowly, so the screen goes dark by painting black and dropping the backlight. |
 | `HOST_STALE_MS` | `5000` | No packet from the host for this long clears the app list. |
 | `SCROLL_STEP_MS` | `350` | Marquee speed for app names that don't fit. |
 | `TICKER_STEP_PX`, `TICKER_STEP_MS` | `2`, `30` | The song title's speed across the screen, right to left. It's drawn into an RGB565 surface a glyph wider than the row on each side (so glyphs at the edges are cut, not dropped), and only the visible middle is sent to the panel. |
@@ -220,6 +220,7 @@ It lands in `host\dist\volume-keeb.exe`. To run from source instead: `pip instal
 | host → knob | `0x66`–`0x68` | Font upload: begin (slot, length, CRC; erases), data (offset + up to 26 bytes), end (checks, loads) |
 | host → knob | `0x69` | Clear a font slot (back to the built-in font) |
 | host → knob | `0x6A` | Ask which fonts the slots hold |
+| host → knob | `0x6B` | Screen: screensaver kind, seconds before it starts, seconds before the screen turns off (0 = never), and a flag to start the screensaver now (the page's **Show on the knob**) |
 | knob → host | `0x70` | Action for one app id: `0` set volume, `1` toggle mute, `2` play/pause |
 | knob → host | `0x71` | Result of a font begin/end/clear |
 | knob → host | `0x72` | Each slot's font CRC (0 = built-in) |

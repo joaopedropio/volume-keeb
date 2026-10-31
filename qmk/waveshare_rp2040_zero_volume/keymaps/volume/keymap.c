@@ -51,6 +51,12 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 //     FONT_END_CMD   data[1] = slot. Checks the CRC and loads it; replies.
 //     FONT_CLEAR_CMD data[1] = slot. Back to the built-in font; replies.
 //     FONT_QUERY_CMD replies FONT_INFO_CMD.
+//   Host -> device, the screen's idle behaviour, whenever it changes and once
+//   right after the host (re)connects:
+//     SCREEN_CMD     data[1] = saver_t, data[2..3] = seconds without touching
+//                    the knob before the screensaver starts, data[4..5] =
+//                    seconds before the screen turns off (0 = never), data[6]
+//                    = 1 to start the screensaver right away (a preview).
 //   Host -> device, from `volume_sync.py --bootloader` (flash.sh):
 //     BOOTLOADER_CMD reboots into the RP2040's BOOTSEL bootloader, so the
 //                    board can be re-flashed without pressing BOOT/RESET.
@@ -73,6 +79,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 #define FONT_END_CMD 0x68
 #define FONT_CLEAR_CMD 0x69
 #define FONT_QUERY_CMD 0x6A
+#define SCREEN_CMD 0x6B
 #define CTRL_CMD 0x70
 #define FONT_STATUS_CMD 0x71
 #define FONT_INFO_CMD 0x72
@@ -86,7 +93,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 #define TITLE_MAX 87
 #define HOST_STALE_MS 5000
 
-#define DISPLAY_TIMEOUT_MS 30000
+#define SAVER_AFTER_MS_DEFAULT 30000
 #define HOLD_MS 500
 #define DOUBLE_CLICK_MS 300
 #define VOLUME_STEP 5
@@ -196,9 +203,20 @@ static uint32_t click_pending_time;
 
 static bool display_on = true; // false only while the host is suspended
 
-static bool saver_on;
-static bool saver_swallow_release; // the click that stopped it does nothing else
-static void stop_saver(void);
+// What the screen does while the knob sits untouched (SCREEN_CMD, from the
+// host's settings page): a screensaver after saver_after_ms, the backlight
+// off after off_after_ms. These defaults hold until a host sends its own.
+typedef enum { SAVER_NONE, SAVER_DRIVE, SAVER_STARS, SAVER_RAIN, SAVER_PLASMA, SAVER_BOUNCE, SAVER_COUNT } saver_t;
+static uint8_t  saver_kind     = SAVER_DRIVE;
+static uint32_t saver_after_ms = SAVER_AFTER_MS_DEFAULT;
+static uint32_t off_after_ms   = 0; // never
+static bool     saver_on;
+static bool     idle_off;             // backlight off for inactivity
+static bool     wake_swallow_release; // the click that woke the screen does nothing else
+static uint32_t woke_at;              // the host waking up counts as activity too
+static void     start_saver(void);
+static void     stop_saver(void);
+static bool     wake_ui(void);
 
 // Everything is drawn into `lcd`, a full-screen RGB565 framebuffer, and only
 // the rectangle of pixels that actually changed is sent to `panel` (see
@@ -642,10 +660,7 @@ static void handle_app_hold(void) {
 }
 
 bool encoder_update_user(uint8_t index, bool clockwise) {
-    if (saver_on) {
-        stop_saver();
-        return false;
-    }
+    if (wake_ui()) return false;
     if (screen == SCREEN_MENU) {
         if (app_count == 0) return false;
         if (clockwise) {
@@ -671,13 +686,12 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     if (keycode != ENC_CLICK) return true;
 
-    if (saver_on && record->event.pressed) {
-        stop_saver();
-        saver_swallow_release = true;
+    if (record->event.pressed && wake_ui()) {
+        wake_swallow_release = true;
         return false;
     }
-    if (saver_swallow_release && !record->event.pressed) {
-        saver_swallow_release = false;
+    if (wake_swallow_release && !record->event.pressed) {
+        wake_swallow_release = false;
         return false;
     }
 
@@ -900,6 +914,22 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
             reset_keyboard();
             break;
         }
+        case SCREEN_CMD: {
+            if (length < 7 || data[1] >= SAVER_COUNT) return;
+            // A running screensaver of another kind stops; if the knob is
+            // still idle, the new one takes over on the next housekeeping pass.
+            if (saver_on && data[1] != saver_kind) stop_saver();
+            saver_kind     = data[1];
+            saver_after_ms = read_le(&data[2], 2) * 1000;
+            off_after_ms   = read_le(&data[4], 2) * 1000;
+            if (saver_after_ms < 1000) saver_after_ms = 1000;
+            if (data[6] && saver_kind != SAVER_NONE && display_on) {
+                wake_ui();
+                woke_at = timer_read32(); // so the preview isn't turned off right away
+                start_saver();
+            }
+            break;
+        }
         case THEME_CMD: {
             if (length < 2) return;
             uint8_t id = data[1];
@@ -942,34 +972,63 @@ static void restore_ui(void) {
     flush_all        = true;
 }
 
-// Only while the host is suspended. Blank by painting black and dropping
-// the backlight, not with qp_power(): DISPOFF on the NV3007 flashes the lit
-// glass white and lets it fade to black over several seconds.
-void suspend_power_down_user(void) {
-    if (!display_on) return;
-    display_on = false;
+// Blank by painting black and dropping the backlight, not with qp_power():
+// DISPOFF on the NV3007 flashes the lit glass white and lets it fade to
+// black over several seconds.
+static void blank_panel(void) {
     qp_rect(panel, 0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1, 0, 0, 0, true);
     qp_flush(panel);
     LCD_BLK_OFF();
 }
 
+void suspend_power_down_user(void) {
+    if (!display_on) return;
+    display_on = false;
+    blank_panel();
+}
+
+// Waking the computer brings the UI back, and the idle timers start over.
 void suspend_wakeup_init_user(void) {
     if (display_on) return;
     display_on = true;
+    saver_on   = false;
+    idle_off   = false;
+    woke_at    = timer_read32();
     LCD_BLK_ON();
     restore_ui();
 }
 
+static uint32_t idle_ms(void) {
+    uint32_t input = last_input_activity_elapsed(), wake = timer_elapsed32(woke_at);
+    return input < wake ? input : wake;
+}
+
+// Sends the framebuffer's changed pixels to the panel (all of it after the
+// panel was blanked, since the framebuffer didn't see that).
+static void flush_screen(void) {
+    qp_surface_draw(lcd, panel, 0, 0, flush_all);
+    flush_all = false;
+}
+
 // ---------------------------------------------------------------------
-// Screensaver: after DISPLAY_TIMEOUT_MS without touching the knob, an
-// endless synthwave drive replaces the UI -- a striped sun behind a city
-// skyline, a road running into the horizon through a striped sea, palm trees
-// going by and a car seen from behind, swaying with the road's curves.
-// Only the knob stops it (see stop_saver()); host updates don't.
+// Screensavers: after saver_after_ms without touching the knob (or right
+// away, as a preview from the settings page), one of these replaces the UI:
+//   SAVER_DRIVE   an endless synthwave drive -- a striped sun behind a city
+//                 skyline, a road running into the horizon through a striped
+//                 sea, palm trees going by and a car seen from behind,
+//                 swaying with the road's curves. Fixed colors.
+//   SAVER_STARS   flying through a star field, near stars streaking.
+//   SAVER_RAIN    columns of glyphs raining down, Matrix-style.
+//   SAVER_PLASMA  a slowly churning plasma cycling through the theme's colors.
+//   SAVER_BOUNCE  what's playing (or "volume-keeb") bouncing off the edges,
+//                 changing color at each bounce.
+// All but the drive take their colors from the theme. Only the knob stops a
+// screensaver (see wake_ui()); host updates don't.
 //
-// The scene is drawn in SCENE_PX x SCENE_PX blocks straight into lcd_fb and
-// sent to the panel without the surface's dirty tracking: everything from the
-// horizon (or the tallest palm) down changes every frame anyway.
+// Except for the bounce, which moves one small block of text through the
+// framebuffer like the UI does, they draw straight into lcd_fb and send it to
+// the panel without the surface's dirty tracking, since most of the screen
+// changes every frame anyway.
 // ---------------------------------------------------------------------
 #define SAVER_FRAME_MS 40
 #define SCENE_PX 2
@@ -992,7 +1051,20 @@ void suspend_wakeup_init_user(void) {
 
 static uint32_t saver_start;
 static uint32_t saver_frame_time;
-static uint8_t  saver_prev_top; // highest scene row the last frame touched
+static uint32_t saver_last_t;   // the previous frame's time, for savers that step
+static uint8_t  saver_prev_top; // drive: highest scene row the last frame touched
+static uint32_t saver_seed;
+
+static uint32_t saver_rand(void) {
+    saver_seed = saver_seed * 1664525u + 1013904223u;
+    return saver_seed >> 8;
+}
+
+// Sends the framebuffer to the panel from row y0 down.
+static void saver_send(uint16_t y0) {
+    qp_viewport(panel, 0, y0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
+    qp_pixdata(panel, &lcd_fb[y0 * LCD_WIDTH], (uint32_t)(LCD_HEIGHT - y0) * LCD_WIDTH);
+}
 
 static const char *const palm_sprite[] = {
     "......p..yp.y.........",
@@ -1255,8 +1327,7 @@ static int16_t saver_curve(uint32_t t) {
     return (int16_t)(CURVE_PX * e / 1024);
 }
 
-static void render_saver_frame(void) {
-    uint32_t t      = timer_elapsed32(saver_start);
+static void render_drive(uint32_t t) {
     uint32_t travel = t * DRIVE_SPEED;
     int16_t  curve  = saver_curve(t);
     draw_sky();
@@ -1267,15 +1338,310 @@ static void render_saver_frame(void) {
     // Send from the highest row that changed, now or in the last frame.
     uint8_t from   = top < saver_prev_top ? top : saver_prev_top;
     saver_prev_top = top;
-    uint16_t y0    = from * SCENE_PX;
-    qp_viewport(panel, 0, y0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
-    qp_pixdata(panel, &lcd_fb[y0 * LCD_WIDTH], (uint32_t)(LCD_HEIGHT - y0) * LCD_WIDTH);
+    saver_send(from * SCENE_PX);
+}
+
+// ---- colors from the theme ----
+
+typedef struct {
+    uint8_t r, g, b;
+} saver_rgb_t;
+
+static saver_rgb_t theme_rgb(uint8_t h, uint8_t s, uint8_t v) {
+    rgb_t c = hsv_to_rgb_nocie((hsv_t){h, s, v}); // what Quantum Painter uses
+    return (saver_rgb_t){c.r, c.g, c.b};
+}
+
+// a + (b - a) * i / n, in panel byte order.
+static uint16_t mix_rgb(saver_rgb_t a, saver_rgb_t b, uint16_t i, uint16_t n) {
+    return lerp_rgb(a.r, a.g, a.b, b.r, b.g, b.b, i, n);
+}
+
+// The brighter of the theme's text and accent colors: what the dark-
+// background savers draw with (neobrutal's text is near-black, for one).
+static saver_rgb_t saver_ink(void) {
+    const theme_t *t = &theme;
+    return t->fg_v >= t->accent_v ? theme_rgb(CT(fg)) : theme_rgb(CT(accent));
+}
+
+static void fill_fb(uint16_t c) {
+    for (uint32_t i = 0; i < LCD_WIDTH * LCD_HEIGHT; i++) lcd_fb[i] = c;
+}
+
+static inline void fb_px(int16_t x, int16_t y, uint16_t c) {
+    if (x < 0 || x >= LCD_WIDTH || y < 0 || y >= LCD_HEIGHT) return;
+    lcd_fb[y * LCD_WIDTH + x] = c;
+}
+
+// ---- stars: flying through a field of stars ----
+// Stars live in a box in front of the viewer and come closer every frame;
+// one that passes the viewer or leaves the screen starts again far away.
+#define STARS 140
+#define STAR_FAR 4096
+#define STAR_NEAR 48
+#define STAR_FOCAL 440   // screen px per world unit at depth 1
+#define STAR_SPEED 3     // depth units per 2 ms
+#define STAR_TRAIL 260   // a near star's streak: where it was this much farther away
+
+typedef struct {
+    int16_t  x, y;
+    uint16_t z;
+} star_t;
+static star_t stars[STARS];
+
+static void star_reset(star_t *s, bool anywhere) {
+    s->x = (int16_t)(saver_rand() % 4001) - 2000;
+    s->y = (int16_t)(saver_rand() % 1401) - 700;
+    s->z = anywhere ? STAR_NEAR + saver_rand() % (STAR_FAR - STAR_NEAR) : STAR_FAR;
+}
+
+static void start_stars(void) {
+    for (uint8_t i = 0; i < STARS; i++) star_reset(&stars[i], true);
+}
+
+static void render_stars(uint32_t t) {
+    uint32_t    step = (t - saver_last_t) * STAR_SPEED / 2;
+    saver_rgb_t ink  = saver_ink(), white = {255, 255, 255}, black = {0, 0, 0};
+    const theme_t *th = &theme;
+    saver_rgb_t    accent = theme_rgb(th->accent_h, th->accent_s, th->accent_v);
+    fill_fb(0);
+    for (uint8_t i = 0; i < STARS; i++) {
+        star_t *s = &stars[i];
+        s->z      = s->z > STAR_NEAR + step ? s->z - step : 0;
+        int32_t sx = LCD_WIDTH / 2 + (int32_t)s->x * STAR_FOCAL / (s->z ? s->z : 1);
+        int32_t sy = LCD_HEIGHT / 2 + (int32_t)s->y * STAR_FOCAL / (s->z ? s->z : 1);
+        if (!s->z || sx < 0 || sx >= LCD_WIDTH || sy < 0 || sy >= LCD_HEIGHT) {
+            star_reset(s, false);
+            continue;
+        }
+        // Brighter as it comes closer; a third white, the rest in the theme's colors.
+        saver_rgb_t base   = i % 3 == 0 ? white : i % 3 == 1 ? ink : accent;
+        uint16_t    near   = STAR_FAR - s->z; // 0..STAR_FAR
+        uint16_t    c      = mix_rgb(black, base, near < STAR_FAR / 2 ? near / 8 + 40 : 296, 296);
+        int32_t     z0     = s->z + STAR_TRAIL;
+        int32_t     tx     = LCD_WIDTH / 2 + (int32_t)s->x * STAR_FOCAL / z0;
+        int32_t     ty     = LCD_HEIGHT / 2 + (int32_t)s->y * STAR_FOCAL / z0;
+        int32_t     dx = sx - tx, dy = sy - ty;
+        int32_t     n = (dx < 0 ? -dx : dx) > (dy < 0 ? -dy : dy) ? (dx < 0 ? -dx : dx) : (dy < 0 ? -dy : dy);
+        for (int32_t k = 1; k <= n; k++) { // the streak, fading towards its tail
+            fb_px(tx + dx * k / n, ty + dy * k / n, mix_rgb(black, base, k * (near / 16 + 8) / n, STAR_FAR / 16 + 8));
+        }
+        fb_px(sx, sy, c);
+        if (s->z < STAR_FAR / 4) { // near ones are 2x2
+            fb_px(sx + 1, sy, c);
+            fb_px(sx, sy + 1, c);
+            fb_px(sx + 1, sy + 1, c);
+        }
+    }
+    saver_send(0);
+}
+
+// ---- rain: columns of glyphs raining down ----
+// Each column has one drop: a bright head and a tail fading behind it. The
+// glyphs stay put on their cells and a few change every frame.
+#define RAIN_CW 7  // a 5x7 glyph plus the gaps
+#define RAIN_CH 10
+#define RAIN_COLS (LCD_WIDTH / RAIN_CW)
+#define RAIN_ROWS ((LCD_HEIGHT + RAIN_CH - 1) / RAIN_CH)
+#define RAIN_X0 ((LCD_WIDTH - RAIN_COLS * RAIN_CW) / 2 + 1)
+#define RAIN_FLIPS 14 // glyphs changed per frame
+#define RAIN_MIRROR 0x80
+
+// 5x7 glyphs, one byte per row, bit 4 = the left column: digits and some
+// katakana-like shapes. Drawn mirrored half the time, like the film's.
+static const uint8_t rain_font[][7] = {
+    {0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E}, {0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E}, {0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F},
+    {0x1F, 0x02, 0x04, 0x02, 0x01, 0x11, 0x0E}, {0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02}, {0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E},
+    {0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08}, {0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E}, {0x0E, 0x11, 0x11, 0x0F, 0x01, 0x02, 0x0C},
+    {0x1F, 0x01, 0x05, 0x06, 0x04, 0x04, 0x08}, {0x01, 0x02, 0x04, 0x0C, 0x14, 0x04, 0x04}, {0x04, 0x1F, 0x11, 0x01, 0x02, 0x04, 0x08},
+    {0x00, 0x1F, 0x04, 0x04, 0x04, 0x04, 0x1F}, {0x08, 0x1F, 0x09, 0x09, 0x09, 0x11, 0x06}, {0x04, 0x1F, 0x04, 0x1F, 0x04, 0x04, 0x04},
+    {0x08, 0x0F, 0x11, 0x01, 0x02, 0x04, 0x08}, {0x18, 0x01, 0x18, 0x01, 0x02, 0x04, 0x18}, {0x15, 0x15, 0x01, 0x02, 0x02, 0x04, 0x08},
+    {0x00, 0x0A, 0x0A, 0x11, 0x11, 0x11, 0x00}, {0x0E, 0x00, 0x0E, 0x00, 0x1E, 0x01, 0x00}, {0x1F, 0x01, 0x01, 0x0F, 0x01, 0x01, 0x1F},
+    {0x0E, 0x00, 0x1F, 0x01, 0x02, 0x04, 0x08}, {0x11, 0x11, 0x11, 0x11, 0x01, 0x02, 0x0C}, {0x04, 0x04, 0x08, 0x08, 0x12, 0x1F, 0x01},
+};
+#define RAIN_GLYPHS (sizeof(rain_font) / sizeof(rain_font[0]))
+
+typedef struct {
+    int16_t head; // in 1/16 rows
+    uint8_t speed; // 1/16 rows per frame
+    uint8_t len;   // rows
+} drop_t;
+static drop_t  drops[RAIN_COLS];
+static uint8_t rain_cells[RAIN_COLS][RAIN_ROWS];
+
+static uint8_t rain_glyph(void) {
+    return saver_rand() % RAIN_GLYPHS | (saver_rand() & 1 ? RAIN_MIRROR : 0);
+}
+
+static void drop_reset(drop_t *d, bool anywhere) {
+    d->speed = 3 + saver_rand() % 7;
+    d->len   = 5 + saver_rand() % 12;
+    d->head  = anywhere ? (int16_t)(saver_rand() % ((RAIN_ROWS + 16) * 16)) - 8 * 16 : -(int16_t)(saver_rand() % (RAIN_ROWS * 16));
+}
+
+static void start_rain(void) {
+    for (uint8_t c = 0; c < RAIN_COLS; c++) {
+        drop_reset(&drops[c], true);
+        for (uint8_t r = 0; r < RAIN_ROWS; r++) rain_cells[c][r] = rain_glyph();
+    }
+}
+
+static void draw_rain_glyph(int16_t x, int16_t y, uint8_t g, uint16_t c) {
+    const uint8_t *rows = rain_font[g & ~RAIN_MIRROR];
+    for (uint8_t r = 0; r < 7; r++) {
+        for (uint8_t b = 0; b < 5; b++) {
+            if (rows[r] & (g & RAIN_MIRROR ? 1 << b : 0x10 >> b)) fb_px(x + b, y + r, c);
+        }
+    }
+}
+
+static void render_rain(void) {
+    saver_rgb_t ink = saver_ink(), white = {255, 255, 255}, black = {0, 0, 0};
+    for (uint8_t i = 0; i < RAIN_FLIPS; i++) rain_cells[saver_rand() % RAIN_COLS][saver_rand() % RAIN_ROWS] = rain_glyph();
+    fill_fb(0);
+    for (uint8_t c = 0; c < RAIN_COLS; c++) {
+        drop_t *d = &drops[c];
+        d->head += d->speed;
+        int16_t head = d->head / 16;
+        if (head - d->len >= RAIN_ROWS) {
+            drop_reset(d, false);
+            continue;
+        }
+        for (int16_t r = head - d->len + 1; r <= head; r++) {
+            if (r < 0 || r >= RAIN_ROWS) continue;
+            int16_t  behind = head - r;
+            uint16_t col    = behind == 0 ? mix_rgb(ink, white, 3, 4) : mix_rgb(black, ink, d->len - behind, d->len);
+            draw_rain_glyph(RAIN_X0 + c * RAIN_CW, r * RAIN_CH + 1, rain_cells[c][r], col);
+        }
+    }
+    saver_send(0);
+}
+
+// ---- plasma: overlapping waves through a looping palette ----
+#define PLASMA_PAL 64
+static int8_t   sin8[256]; // one period, +-127
+static uint16_t plasma_pal[PLASMA_PAL];
+
+static void start_plasma(void) {
+    // A parabola per half period is close enough to a sine at this size.
+    for (uint16_t i = 0; i < 256; i++) {
+        int16_t x = i & 127;
+        int16_t v = (int32_t)x * (128 - x) * 127 / 4096;
+        sin8[i]   = i < 128 ? v : -v;
+    }
+    // bg -> secondary -> accent -> text -> bg, so cycling through it loops.
+    const theme_t *t       = &theme;
+    saver_rgb_t    stops[] = {theme_rgb(CT(bg)), theme_rgb(CT(dim)), theme_rgb(CT(accent)), theme_rgb(CT(fg)), theme_rgb(CT(bg))};
+    for (uint8_t i = 0; i < PLASMA_PAL; i++) {
+        uint8_t seg = i / (PLASMA_PAL / 4), k = i % (PLASMA_PAL / 4);
+        plasma_pal[i] = mix_rgb(stops[seg], stops[seg + 1], k, PLASMA_PAL / 4);
+    }
+}
+
+static void render_plasma(uint32_t t) {
+    uint8_t a = t / 23, b = t / 37, c = t / 29, d = t / 17, shift = t / 90;
+    int16_t cx = SCENE_W / 2 + sin8[(uint8_t)(t / 61)] * 70 / 127;
+    int16_t cy = SCENE_H / 2 + sin8[(uint8_t)(t / 47)] * 30 / 127;
+    for (int16_t y = 0; y < SCENE_H; y++) {
+        int16_t dy = y - cy, vy = sin8[(uint8_t)(y * 5 - b)];
+        for (int16_t x = 0; x < SCENE_W; x++) {
+            int16_t  dx = x - cx;
+            int16_t  v  = sin8[(uint8_t)(x * 3 + a)] + vy + sin8[(uint8_t)((x + y * 2) * 2 + c)] + sin8[(uint8_t)(((dx * dx + dy * dy * 4) >> 6) - d)];
+            uint16_t i  = (((v + 512) >> 4) + shift) % PLASMA_PAL; // v is within +-508
+            scene_px(x, y, plasma_pal[i]);
+        }
+    }
+    saver_send(0);
+}
+
+// ---- bounce: what's playing bouncing off the edges ----
+#define BOUNCE_MAX_W 300
+#define BOUNCE_GAP 4 // between the title and the app name under it
+
+static int16_t bounce_x, bounce_y, bounce_dx, bounce_dy;
+static uint16_t bounce_w, bounce_h; // the block drawn last frame
+static uint8_t  bounce_color;
+
+static void start_bounce(void) {
+    const theme_t *t = &theme;
+    qp_rect(lcd, 0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1, CT(bg), true);
+    flush_all = true;
+    bounce_x  = 20 + saver_rand() % 100;
+    bounce_y  = 10 + saver_rand() % 40;
+    bounce_dx = 2;
+    bounce_dy = 1;
+    bounce_w = bounce_h = 0;
+}
+
+static void render_bounce(void) {
+    const theme_t *t = &theme;
+    char           title[TITLE_MAX + 1] = "volume-keeb", sub[NAME_MAX + 1] = "";
+    for (uint8_t i = 0; i < app_count; i++) {
+        if (apps[i].playing && apps[i].title[0]) {
+            fit_text(apps[i].title, title, sizeof(title), font_big, BOUNCE_MAX_W);
+            fit_text(apps[i].name, sub, sizeof(sub), font_ui, BOUNCE_MAX_W);
+            break;
+        }
+    }
+    uint16_t tw = qp_textwidth(font_big, title), sw = sub[0] ? qp_textwidth(font_ui, sub) : 0;
+    uint16_t w = tw > sw ? tw : sw, h = BIG_CHAR_H + (sub[0] ? BOUNCE_GAP + UI_CHAR_H : 0);
+
+    if (bounce_w) qp_rect(lcd, bounce_x, bounce_y, bounce_x + bounce_w - 1, bounce_y + bounce_h - 1, CT(bg), true);
+    bounce_x += bounce_dx;
+    bounce_y += bounce_dy;
+    bool hit = false;
+    if (bounce_x <= 0 || bounce_x + w >= LCD_WIDTH) {
+        bounce_dx = -bounce_dx;
+        hit       = true;
+    }
+    if (bounce_y <= 0 || bounce_y + h >= LCD_HEIGHT) {
+        bounce_dy = -bounce_dy;
+        hit       = true;
+    }
+    if (hit) bounce_color++;
+    if (bounce_x < 0) bounce_x = 0;
+    if (bounce_x + w > LCD_WIDTH) bounce_x = LCD_WIDTH - w;
+    if (bounce_y < 0) bounce_y = 0;
+    if (bounce_y + h > LCD_HEIGHT) bounce_y = LCD_HEIGHT - h;
+
+    // Text, accent and muted colors in turn.
+    uint8_t c = bounce_color % 3;
+    uint8_t ch = c == 0 ? t->fg_h : c == 1 ? t->accent_h : t->mute_h;
+    uint8_t cs = c == 0 ? t->fg_s : c == 1 ? t->accent_s : t->mute_s;
+    uint8_t cv = c == 0 ? t->fg_v : c == 1 ? t->accent_v : t->mute_v;
+    qp_drawtext_recolor(lcd, bounce_x + (w - tw) / 2, bounce_y, font_big, title, ch, cs, cv, CT(bg));
+    if (sub[0]) qp_drawtext_recolor(lcd, bounce_x + (w - sw) / 2, bounce_y + BIG_CHAR_H + BOUNCE_GAP, font_ui, sub, CT(dim), CT(bg));
+    bounce_w = w;
+    bounce_h = h;
+    flush_screen();
+}
+
+// ----
+
+static void render_saver_frame(void) {
+    uint32_t t = timer_elapsed32(saver_start);
+    switch (saver_kind) {
+        case SAVER_STARS: render_stars(t); break;
+        case SAVER_RAIN: render_rain(); break;
+        case SAVER_PLASMA: render_plasma(t); break;
+        case SAVER_BOUNCE: render_bounce(); break;
+        default: render_drive(t); break;
+    }
+    saver_last_t = t;
 }
 
 static void start_saver(void) {
     saver_on       = true;
     saver_start    = timer_read32();
-    saver_prev_top = 0; // first frame goes out whole
+    saver_last_t   = 0;
+    saver_seed     = saver_start * 2654435761u + 1;
+    saver_prev_top = 0; // the drive's first frame goes out whole
+    switch (saver_kind) {
+        case SAVER_STARS: start_stars(); break;
+        case SAVER_RAIN: start_rain(); break;
+        case SAVER_PLASMA: start_plasma(); break;
+        case SAVER_BOUNCE: start_bounce(); break;
+    }
     render_saver_frame();
     saver_frame_time = timer_read32();
 }
@@ -1286,11 +1652,20 @@ static void stop_saver(void) {
     restore_ui();
 }
 
-// Sends the framebuffer's changed pixels to the panel (all of it after the
-// panel was blanked, since the framebuffer didn't see that).
-static void flush_screen(void) {
-    qp_surface_draw(lcd, panel, 0, 0, flush_all);
-    flush_all = false;
+// The first touch after the screensaver started or the screen went off only
+// brings the UI back.
+static bool wake_ui(void) {
+    if (idle_off) {
+        idle_off = false;
+        LCD_BLK_ON();
+        restore_ui();
+        return true;
+    }
+    if (saver_on) {
+        stop_saver();
+        return true;
+    }
+    return false;
 }
 
 void housekeeping_task_user(void) {
@@ -1315,8 +1690,15 @@ void housekeeping_task_user(void) {
         }
     }
 
-    if (!display_on) return;
-    if (!saver_on && last_input_activity_elapsed() > DISPLAY_TIMEOUT_MS) {
+    if (!display_on || idle_off) return;
+    uint32_t idle = idle_ms();
+    if (off_after_ms && idle > off_after_ms) {
+        saver_on = false;
+        idle_off = true;
+        blank_panel();
+        return;
+    }
+    if (!saver_on && saver_kind != SAVER_NONE && idle > saver_after_ms) {
         start_saver();
     }
     if (saver_on) {
