@@ -1391,10 +1391,11 @@ static void flush_screen(void) {
 // ---------------------------------------------------------------------
 // Screensavers: after saver_after_ms without touching the knob (or right
 // away, as a preview from the settings page), one of these replaces the UI:
-//   SAVER_DRIVE   an endless synthwave drive -- a striped sun behind a city
-//                 skyline, a road running into the horizon through a striped
+//   SAVER_DRIVE   an endless synthwave drive -- a neon city under a starry
+//                 sky, a road running into the horizon through a striped
 //                 sea, palm trees going by and a car seen from behind,
-//                 swaying with the road's curves. Fixed colors.
+//                 swaying with the road's curves, the sky sliding sideways
+//                 as it turns. Fixed colors.
 //   SAVER_STARS   flying through a star field, near stars streaking.
 //   SAVER_RAIN    columns of glyphs raining down, Matrix-style.
 //   SAVER_PLASMA  a slowly churning plasma cycling through the theme's colors.
@@ -1412,15 +1413,17 @@ static void flush_screen(void) {
 #define SCENE_PX 2
 #define SCENE_W (LCD_WIDTH / SCENE_PX)  // 214
 #define SCENE_H (LCD_HEIGHT / SCENE_PX) // 71
-#define HORIZON 27                      // first ground row
+#define HORIZON 33                      // first ground row
 #define GROUND_ROWS (SCENE_H - HORIZON)
 #define ROAD_CX (SCENE_W / 2)
 #define DEPTH_K 32768        // depth of ground row r (1 = horizon) is DEPTH_K / r
 #define DRIVE_SPEED 5        // depth units per ms
 #define CURVE_PX 30          // how far the vanishing point swings at most
-#define CURVE_PERIOD_MS 9000 // one full left-right-left sway
-#define PALMS 16             // alternating sides
-#define PALM_SPACING 2048    // depth between consecutive palms
+#define STRAIGHT_MS 5000     // each straight, then a turn
+#define TURN_MS 4000
+#define TURN_SKY_PX 40       // how far one turn slides the sky
+#define PALMS 16             // slots along the road, each holding a palm or not
+#define PALM_SPACING 2048    // depth between consecutive slots, give or take
 #define PALM_NEAR 400
 
 // Panel byte order (byte-swapped RGB565), like the surface stores it.
@@ -1484,44 +1487,41 @@ static const char *const palm_sprite[] = {
 
 static const char *const car_sprite[] = {
     "..........kkkkkkkkkkkkkkkkkkkk..........",
-    ".........kPPPPPPPPPPPPPPPPPPPPk.........",
-    "........kPkkkkkkkkkkkkkkkkkkkkPk........",
-    ".......kPkCCCCCCcccccccccccccckPk.......",
-    "......kPkCCCCCccccccccccccccccckPk......",
-    ".....kPkCCCCcccccccccccccccccccckPk.....",
-    "....kPPkkkkkkkkkkkkkkkkkkkkkkkkkkPPk....",
-    "..kkPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPkk..",
-    ".kPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPk.",
-    "kqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqk",
-    "kqrrRRRRrrqqqqqqqqqqqqqqqqqqqqrrRRRRrrqk",
-    "kqrrrrrrrrqqqqqqqwwwwwwqqqqqqqrrrrrrrrqk",
-    "kqddddddddqqqqqqqwkkkkwqqqqqqqddddddddqk",
-    "kqqqqqqqqqqqqqqqqwwwwwwqqqqqqqqqqqqqqqqk",
-    "kgwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwgk",
-    "kddddgddddddddddddddddddddddddddddgddddk",
-    ".kkkkkkksssssssssssssssssssssssskkkkkkk.",
-    ".kkkkkkksssssssssssssssssssssssskkkkkkk.",
-    "ssssssssssssssssssssssssssssssssssssssss",
-    "..ssssssssssssssssssssssssssssssssssss..",
+    "........kkCCCCCCCCCCCCCCCCCCCCkk........",
+    ".......kCCCCCCCCCCCCCCCCCCCCCCCCk.......",
+    "......kCccccccccccccccccccccccccCk......",
+    ".....kCccckkkkkkkkkkkkkkkkkkkkcccCk.....",
+    "....kCcccckkkkkkkkkkkkkkkkkkkkccccCk....",
+    "...kCccccccccccccccccccccccccccccccCk...",
+    ".kkcccccccccccccccccccccccccccccccccckk.",
+    "kbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbk",
+    "kbkOOOOOOOOOOOOOOOOkkOOOOOOOOOOOOOOOOkbk",
+    "kbkooooooooooooooookkooooooooooooooookbk",
+    "kbkrrrrrrrrrrrrrrrrkkrrrrrrrrrrrrrrrrkbk",
+    "kbbkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkbbk",
+    "kbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbk",
+    "kkkkkkkkWWWkkkkkkkkkkkkkkkkkkWWWkkkkkkkk",
+    ".kttttttkkkkkkkkkkkkkkkkkkkkkkkkttttttk.",
+    "..TTTTTTssssssssssssssssssssssssTTTTTT..",
+    "...ssssssssssssssssssssssssssssssssss...",
 };
 #define CAR_W 40
-#define CAR_H 20
+#define CAR_H 18
 
 static uint16_t sprite_color(char c) {
     switch (c) {
-        case 'p': return SCENE_RGB(255, 96, 180); // palm leaves
-        case 'y': return SCENE_RGB(255, 236, 0);
-        case 'k': return SCENE_RGB(16, 8, 24);
-        case 'P': return SCENE_RGB(150, 110, 220); // car body, lit
-        case 'q': return SCENE_RGB(108, 72, 176);
-        case 'd': return SCENE_RGB(64, 40, 112);
-        case 'c': return SCENE_RGB(0, 200, 210); // glass
-        case 'C': return SCENE_RGB(170, 255, 255);
-        case 'r': return SCENE_RGB(200, 16, 48); // tail lights
-        case 'R': return SCENE_RGB(255, 90, 110);
-        case 'w': return SCENE_RGB(240, 240, 240);
-        case 'g': return SCENE_RGB(150, 150, 165);
-        case 's': return SCENE_RGB(150, 60, 16); // shadow on the road
+        case 'p': return SCENE_RGB(40, 255, 110); // palms: neon green, lit in neon yellow
+        case 'y': return SCENE_RGB(236, 255, 40);
+        case 'k': return SCENE_RGB(12, 10, 32);
+        case 'C': return SCENE_RGB(190, 255, 255); // car body, lit
+        case 'c': return SCENE_RGB(40, 200, 235);
+        case 'b': return SCENE_RGB(16, 104, 150);
+        case 'O': return SCENE_RGB(255, 210, 90); // tail lights
+        case 'o': return SCENE_RGB(255, 136, 30);
+        case 'r': return SCENE_RGB(200, 72, 20);
+        case 'W': return SCENE_RGB(240, 240, 240);
+        case 't': return SCENE_RGB(54, 54, 68); // tyres; 'T' is the tread, see draw_car()
+        case 's': return SCENE_RGB(16, 10, 40); // shadow on the road
         default: return 0;
     }
 }
@@ -1543,59 +1543,130 @@ static uint16_t lerp_rgb(uint8_t r0, uint8_t g0, uint8_t b0, uint8_t r1, uint8_t
     return SCENE_RGB(r0 + (r1 - r0) * i / n, g0 + (g1 - g0) * i / n, b0 + (b1 - b0) * i / n);
 }
 
-// The sky never moves: violet bands warming to orange at the horizon, a
-// striped sun, mountains on both sides and the city in front of the sun.
-static void draw_sky(void) {
-    for (int16_t y = 0; y < HORIZON; y++) {
-        uint16_t band = y / 3, bands = (HORIZON - 1) / 3;
-        uint16_t c    = band * 2 < bands ? lerp_rgb(60, 16, 110, 150, 50, 170, band, bands / 2) : lerp_rgb(150, 50, 170, 255, 120, 110, band - bands / 2, bands - bands / 2);
-        for (int16_t x = 0; x < SCENE_W; x++) scene_px(x, y, c);
-    }
+// The sky: violet bands with a few stars, and a neon city across the
+// horizon. It slides `shift` scene pixels sideways, so the car's turns swing
+// the view across it; the stars wrap around, the city just goes off the edge.
+static int16_t sky_shift;
 
-    // Sun: yellow to pink downwards, cut by gaps that widen towards the horizon.
-    const int16_t sr = 20, scy = HORIZON - 1;
-    for (int16_t y = scy - sr; y < HORIZON; y++) {
-        int16_t d = scy - y;
-        if (d < 12 && (d % 4 == 1 || (d < 6 && d % 4 == 2))) continue;
-        uint16_t c = lerp_rgb(255, 240, 40, 255, 70, 140, y - (scy - sr), sr);
-        for (int16_t x = ROAD_CX - sr; x <= ROAD_CX + sr; x++) {
-            int16_t dx = x - ROAD_CX;
-            if (dx * dx + d * d <= sr * sr) scene_px(x, y, c);
+static inline void sky_px(int16_t x, int16_t y, uint16_t c) {
+    scene_px(x + sky_shift, y, c);
+}
+
+// A city tower: where it stands, how it's lit (CITY_*) and what it carries
+// on top (TOP_* bits), in two of city_colors[].
+enum { CITY_BACK, CITY_STRIPES, CITY_COLUMNS, CITY_WINDOWS, CITY_SIGN };
+#define TOP_ANTENNA 1
+#define TOP_FRAME 2  // a hollow neon box on the roof
+#define TOP_BOX 4    // a lit sign across the top floors
+#define TOP_SLOPE 8  // the roof slants down to the right
+#define TOP_LIGHTS 16
+typedef struct {
+    uint8_t x, w, h, kind, c1, c2, top;
+} tower_t;
+static const uint16_t city_colors[] = {
+    SCENE_RGB(255, 40, 160),  // 0 pink
+    SCENE_RGB(40, 220, 255),  // 1 cyan
+    SCENE_RGB(255, 196, 40),  // 2 amber
+    SCENE_RGB(255, 60, 70),   // 3 red
+    SCENE_RGB(150, 176, 255), // 4 pale blue
+    SCENE_RGB(230, 236, 255), // 5 white
+    SCENE_RGB(200, 50, 230),  // 6 magenta
+    SCENE_RGB(80, 230, 140),  // 7 green
+};
+static const tower_t towers[] = {
+    // Behind: a hazy blue-violet skyline.
+    {26, 9, 7, CITY_BACK}, {34, 8, 11, CITY_BACK}, {50, 7, 15, CITY_BACK}, {68, 6, 13, CITY_BACK}, {92, 8, 16, CITY_BACK},
+    {112, 7, 19, CITY_BACK}, {128, 9, 14, CITY_BACK}, {146, 8, 12, CITY_BACK}, {162, 9, 10, CITY_BACK}, {178, 10, 7, CITY_BACK},
+    // In front, left to right.
+    {30, 7, 6, CITY_WINDOWS, 4, 1, 0},
+    {38, 9, 11, CITY_STRIPES, 3, 0, TOP_LIGHTS},
+    {48, 8, 16, CITY_WINDOWS, 4, 5, TOP_ANTENNA},
+    {57, 5, 19, CITY_SIGN, 3, 5, 0},
+    {63, 6, 9, CITY_WINDOWS, 5, 1, TOP_BOX},
+    {70, 10, 20, CITY_STRIPES, 0, 2, TOP_ANTENNA | TOP_BOX},
+    {81, 11, 27, CITY_STRIPES, 1, 5, TOP_ANTENNA | TOP_SLOPE | TOP_BOX},
+    {93, 9, 18, CITY_COLUMNS, 0, 6, TOP_BOX},
+    {103, 8, 22, CITY_WINDOWS, 4, 1, TOP_FRAME},
+    {112, 5, 12, CITY_SIGN, 1, 1, 0},
+    {118, 10, 15, CITY_STRIPES, 2, 3, TOP_BOX},
+    {129, 7, 12, CITY_WINDOWS, 6, 4, TOP_ANTENNA},
+    {137, 10, 17, CITY_STRIPES, 4, 5, TOP_LIGHTS},
+    {148, 9, 10, CITY_WINDOWS, 1, 4, 0},
+    {158, 8, 14, CITY_COLUMNS, 6, 0, TOP_FRAME},
+    {167, 9, 9, CITY_STRIPES, 1, 4, 0},
+    {177, 7, 5, CITY_WINDOWS, 2, 4, 0},
+};
+
+static void draw_tower(const tower_t *tw, uint8_t i) {
+    const uint16_t body = tw->kind == CITY_BACK ? SCENE_RGB(62, 48, 130) : SCENE_RGB(22, 16, 50);
+    const uint16_t dim  = tw->kind == CITY_BACK ? SCENE_RGB(92, 80, 170) : SCENE_RGB(46, 40, 96);
+    const uint16_t c1 = city_colors[tw->c1], c2 = city_colors[tw->c2];
+    int16_t        top = HORIZON - tw->h;
+    for (int16_t ry = 0; ry < tw->h; ry++) {
+        for (int16_t cx = 0; cx < tw->w; cx++) {
+            if ((tw->top & TOP_SLOPE) && ry < cx / 2) continue;
+            bool     inner = cx > 0 && cx < tw->w - 1 && ry > 0;
+            uint32_t r     = scene_hash(i * 97 + cx, ry);
+            uint16_t c     = body;
+            switch (tw->kind) {
+                case CITY_BACK:
+                    if (inner && cx % 2 && ry % 2 == 0 && r % 3 == 0) c = dim;
+                    break;
+                case CITY_STRIPES:
+                    if (inner && ry % 3 == 1) c = (ry / 3) % 3 == 1 ? c2 : c1;
+                    break;
+                case CITY_COLUMNS:
+                    if (inner && cx % 2 && ry % 5 != 0) c = (cx / 2) % 2 ? c2 : c1;
+                    break;
+                case CITY_WINDOWS:
+                    if (inner && cx % 2 && ry % 2 == 0) c = r % 5 < 3 ? (r % 5 ? c1 : c2) : dim;
+                    break;
+                case CITY_SIGN:
+                    // A tall vertical sign in the top half, plain floors below.
+                    if (inner && ry < tw->h / 2) c = (cx + ry) % 2 ? c1 : c2;
+                    else if (inner && cx % 2 && ry % 2 == 0 && r % 3 == 0) c = dim;
+                    break;
+            }
+            if ((tw->top & TOP_BOX) && inner && ry >= 2 && ry <= 3) c = ry == 2 ? c2 : c1;
+            sky_px(tw->x + cx, top + ry, c);
         }
     }
-
-    // Mountains: overlapping jagged peaks, low in the middle so the sun shows.
-    static const int8_t peaks[][3] = {{8, 12, 1}, {30, 17, 1}, {52, 10, 1}, {72, 6, 1}, {142, 6, 1}, {163, 11, 1}, {186, 16, 1}, {208, 12, 1}};
-    for (int16_t x = 0; x < SCENE_W; x++) {
-        int16_t h = 0;
-        for (uint8_t i = 0; i < sizeof(peaks) / sizeof(peaks[0]); i++) {
-            int16_t ph = peaks[i][1] - (x > peaks[i][0] ? x - peaks[i][0] : peaks[i][0] - x) * 3 / 4 - (scene_hash(x, i) & 1);
-            if (ph > h) h = ph;
-        }
-        for (int16_t k = 0; k < h; k++) {
-            scene_px(x, HORIZON - 1 - k, k == h - 1 ? SCENE_RGB(230, 110, 200) : SCENE_RGB(72, 30, 100));
-        }
+    int16_t mid = tw->x + tw->w / 2;
+    if (tw->top & TOP_ANTENNA) {
+        int16_t ax = (tw->top & TOP_SLOPE) ? tw->x + 1 : mid;
+        for (int16_t k = 1; k <= 4; k++) sky_px(ax, top - k, body);
+        sky_px(ax, top - 5, c1);
+        sky_px(ax, top - 6, c1);
     }
-
-    // City: black towers with scattered lit windows and a couple of spires.
-    static const uint8_t towers[][3] = {
-        {78, 6, 8}, {84, 5, 13}, {89, 7, 9}, {96, 4, 19}, {100, 6, 11}, {106, 5, 7}, {111, 4, 16}, {115, 7, 10}, {122, 5, 14}, {127, 6, 8}, {133, 4, 18}, {137, 5, 6},
-    };
-    static const uint16_t windows[] = {SCENE_RGB(0, 240, 240), SCENE_RGB(255, 80, 170), SCENE_RGB(255, 236, 0)};
-    for (uint8_t i = 0; i < sizeof(towers) / sizeof(towers[0]); i++) {
-        int16_t x0 = towers[i][0], w = towers[i][1], h = towers[i][2];
-        for (int16_t y = HORIZON - h; y < HORIZON; y++) {
-            for (int16_t x = x0; x < x0 + w; x++) {
-                uint32_t r = scene_hash(x * 31 + y, i);
-                bool     lit = x > x0 && x < x0 + w - 1 && y > HORIZON - h && r % 7 == 0;
-                scene_px(x, y, lit ? windows[(r >> 8) % 3] : SCENE_RGB(10, 4, 20));
+    if (tw->top & TOP_FRAME) {
+        for (int16_t x = tw->x + 1; x < tw->x + tw->w - 1; x++) {
+            sky_px(x, top - 4, city_colors[0]);
+            if (x == tw->x + 1 || x == tw->x + tw->w - 2) {
+                for (int16_t y = top - 3; y < top; y++) sky_px(x, y, city_colors[0]);
             }
         }
-        if (h >= 16) {
-            for (int16_t k = 1; k <= 4; k++) scene_px(x0 + w / 2, HORIZON - h - k, SCENE_RGB(10, 4, 20));
-            scene_px(x0 + w / 2, HORIZON - h - 5, SCENE_RGB(255, 80, 170));
-        }
+        sky_px(mid, top - 2, c2);
     }
+    if (tw->top & TOP_LIGHTS) {
+        for (int16_t x = tw->x + 1; x < tw->x + tw->w - 1; x += 2) sky_px(x, top - 1, city_colors[3]);
+    }
+}
+
+static void draw_sky(int16_t shift) {
+    sky_shift = shift;
+    for (int16_t y = 0; y < HORIZON; y++) {
+        uint16_t c = lerp_rgb(56, 10, 120, 140, 30, 200, y / 3, (HORIZON - 1) / 3);
+        for (int16_t x = 0; x < SCENE_W; x++) scene_px(x, y, c);
+    }
+    // Stars: fixed in the sky (they slide with it), a few brighter.
+    for (uint8_t i = 0; i < 34; i++) {
+        uint32_t r = scene_hash(i, 7);
+        int16_t  x = r % SCENE_W, y = (r >> 8) % (HORIZON - 8);
+        scene_px((x + shift % SCENE_W + SCENE_W) % SCENE_W, y, (r >> 16) % 4 ? SCENE_RGB(190, 150, 255) : SCENE_RGB(255, 230, 255));
+    }
+    for (uint8_t i = 0; i < sizeof(towers) / sizeof(towers[0]); i++) draw_tower(&towers[i], i);
+    // The city's foot: a dark band where it meets the ground.
+    for (int16_t x = 0; x < SCENE_W; x++) scene_px(x, HORIZON - 1, SCENE_RGB(30, 20, 60));
 }
 
 // Ground row `r` (1 at the horizon): centre and half-width of the road.
@@ -1610,16 +1681,20 @@ static int16_t road_hw(int16_t r) {
 }
 
 static void draw_ground(uint32_t travel, int16_t curve) {
-    const uint16_t road[2]  = {SCENE_RGB(255, 132, 24), SCENE_RGB(240, 110, 20)};
-    const uint16_t white    = SCENE_RGB(250, 250, 250);
-    const uint16_t sea[4]   = {SCENE_RGB(0, 236, 240), SCENE_RGB(240, 16, 72), SCENE_RGB(240, 16, 72), SCENE_RGB(150, 10, 70)};
+    // The city's colors: a dark violet road with cyan and magenta kerbs, and
+    // a sea mostly in violets with a few neon bricks.
+    const uint16_t road[2]  = {SCENE_RGB(40, 30, 92), SCENE_RGB(34, 24, 80)};
+    const uint16_t kerb[2]  = {SCENE_RGB(40, 220, 255), SCENE_RGB(200, 50, 230)};
+    const uint16_t line     = SCENE_RGB(150, 176, 255);
+    const uint16_t sea[8]   = {SCENE_RGB(70, 22, 140), SCENE_RGB(70, 22, 140), SCENE_RGB(56, 16, 116), SCENE_RGB(92, 30, 170),
+                               SCENE_RGB(92, 30, 170), SCENE_RGB(200, 50, 230), SCENE_RGB(255, 40, 160), SCENE_RGB(40, 220, 255)};
     for (int16_t r = 1; r <= GROUND_ROWS; r++) {
         int16_t  y    = HORIZON + r - 1;
         uint32_t z    = DEPTH_K / r + travel;
         int16_t  cx   = road_cx(r, curve);
         int16_t  hw   = road_hw(r);
         int16_t  edge = 1 + r / 16;
-        bool     dash = (z >> 9) & 1;
+        bool     dash = (z & 1023) < 320; // a short dash every 1024
         uint16_t tar  = road[(z >> 10) & 1];
         uint32_t band = z >> 8;
         for (int16_t x = 0; x < SCENE_W; x++) {
@@ -1627,24 +1702,30 @@ static void draw_ground(uint32_t travel, int16_t curve) {
             int16_t  adx = dx < 0 ? -dx : dx;
             uint16_t c;
             if (adx <= hw) {
-                c = (adx > hw - edge || (dash && adx * 16 <= r)) ? white : tar;
+                c = adx > hw - edge ? kerb[(z >> 9) & 1] : dash && adx * 16 <= r ? line : tar;
             } else {
                 // Sea: brick-like dashes, stretched wider the closer they are.
                 int32_t wx = (int32_t)dx * 48 / r + (int32_t)(scene_hash(band, 0) & 31);
-                c          = sea[scene_hash(band, (uint32_t)(wx >> 5)) & 3];
+                c          = sea[scene_hash(band, (uint32_t)(wx >> 5)) & 7];
             }
             scene_px(x, y, c);
         }
     }
 }
 
-// Palms stand just off the road's edges; returns the highest row drawn.
+// Palms stand off the road's edges; returns the highest row drawn. Each
+// slot sits a fixed, uneven distance along the road, and every time it comes
+// round again (out of sight, behind the car) it picks anew whether it holds
+// a palm, on which side and how far from the road.
 static int16_t draw_palms(uint32_t travel, int16_t curve) {
-    uint32_t zs[PALMS];
-    uint8_t  order[PALMS];
+    const uint32_t lap = PALMS * PALM_SPACING;
+    uint32_t       zs[PALMS], picks[PALMS];
+    uint8_t        order[PALMS];
     for (uint8_t i = 0; i < PALMS; i++) {
-        zs[i]    = (i * PALM_SPACING + PALMS * PALM_SPACING - travel % (PALMS * PALM_SPACING)) % (PALMS * PALM_SPACING) + PALM_NEAR;
-        order[i] = i;
+        uint32_t at = i * PALM_SPACING + scene_hash(i, 3) % (PALM_SPACING * 3 / 4);
+        zs[i]       = (at + lap - travel % lap) % lap + PALM_NEAR;
+        picks[i]    = scene_hash(i, (travel + lap - at) / lap);
+        order[i]    = i;
     }
     // Far to near, so nearer palms cover farther ones.
     for (uint8_t i = 1; i < PALMS; i++) {
@@ -1658,15 +1739,16 @@ static int16_t draw_palms(uint32_t travel, int16_t curve) {
     for (uint8_t n = 0; n < PALMS; n++) {
         uint8_t  i    = order[n];
         uint32_t r16  = (uint32_t)DEPTH_K * 16 / zs[i]; // ground row, 1/16 px
-        if (r16 < 24) continue;
+        if (r16 < 24 || picks[i] % 3 == 0) continue;     // a third of the slots stay empty
         int16_t  r    = r16 / 16;
         uint32_t s    = r16 * 256 / (GROUND_ROWS * 16); // scale, 1/256
-        int8_t   side = (i & 1) ? 1 : -1;
+        int8_t   side = (picks[i] >> 4) & 1 ? 1 : -1;
         int16_t  base = HORIZON - 1 + r;
         int16_t  h    = PALM_H * s / 256;
         int16_t  w    = PALM_W * s / 256;
         if (h < 2) continue;
-        int16_t root = road_cx(r, curve) + side * (road_hw(r) + (int16_t)(6 * s / 256) + 1);
+        int16_t gap  = 4 + (picks[i] >> 8) % 14;          // from the road's edge, in sprite pixels
+        int16_t root = road_cx(r, curve) + side * (road_hw(r) + (int16_t)(gap * s / 256) + 1);
         int16_t x0   = root - PALM_ROOT * (int32_t)s / 256;
         if (side > 0) x0 = root - (PALM_W - 1 - PALM_ROOT) * (int32_t)s / 256; // mirrored: lean towards the road
         if (base - h + 1 < top) top = base - h + 1;
@@ -1685,36 +1767,61 @@ static int16_t draw_palms(uint32_t travel, int16_t curve) {
     return top < 0 ? 0 : top;
 }
 
+static uint16_t tread_color(int16_t x, uint32_t t) {
+    // A grey band with a few lighter pixels running across, as if spinning.
+    return (x + t / 45) % 4 ? SCENE_RGB(88, 88, 104) : SCENE_RGB(200, 200, 214);
+}
+
 static void draw_car(uint32_t t, int16_t curve) {
     int16_t x0 = ROAD_CX - CAR_W / 2 - curve / 5;
-    int16_t y0 = SCENE_H - CAR_H - ((t / 110) % 5 == 0 ? 1 : 0);
+    int16_t y0 = SCENE_H - CAR_H - 4 - ((t / 110) % 5 == 0 ? 1 : 0);
     for (int16_t y = 0; y < CAR_H; y++) {
         for (int16_t x = 0; x < CAR_W; x++) {
             char c = car_sprite[y][x];
-            if (c != '.') scene_px(x0 + x, y0 + y, sprite_color(c));
+            if (c == 'T') {
+                scene_px(x0 + x, y0 + y, tread_color(x, t));
+            } else if (c != '.') {
+                scene_px(x0 + x, y0 + y, sprite_color(c));
+            }
         }
     }
 }
 
-static int16_t saver_curve(uint32_t t) {
-    // Triangle wave eased into a smooth sway, no floats needed.
-    int32_t p = (int32_t)(t % CURVE_PERIOD_MS) * 4096 / CURVE_PERIOD_MS; // 0..4095
-    int32_t q = p < 2048 ? p : 4096 - p;                                 // 0..2048..0
-    int32_t u = q - 1024;                                                // -1024..1024
-    int32_t e = u * (3 * 1048576 - u * u) / (2 * 1048576);               // smoothstep-like
-    return (int16_t)(CURVE_PX * e / 1024);
+// The route repeats in four legs, each a straight and then a turn: left,
+// right, right, left, so the car always comes back to where it started
+// facing. A turn's bend rises and falls smoothly; `curve` is it now (< 0 =
+// left), `shift` how far the sky has slid: the bend's integral, which for
+// this bump is smootherstep, from where the leg started.
+static void drive_route(uint32_t t, int16_t *curve, int16_t *shift) {
+    static const int8_t turn[4]    = {-1, 1, 1, -1};
+    static const int8_t heading[4] = {0, -1, 0, 1}; // at each leg's start
+    uint8_t  leg = (t / (STRAIGHT_MS + TURN_MS)) % 4;
+    uint32_t in  = t % (STRAIGHT_MS + TURN_MS);
+    int32_t  u = 0, bend = 0, turned = 0; // 1024 = all of it
+    if (in >= STRAIGHT_MS) {
+        u          = (int32_t)(in - STRAIGHT_MS) * 1024 / TURN_MS;
+        int32_t w  = 4 * u * (1024 - u) / 1024;
+        bend       = w * w / 1024;
+        turned     = (int32_t)((int64_t)u * u * u * (10 * 1048576 - 15 * 1024 * u + 6 * u * u) >> 40);
+    }
+    *curve = turn[leg] * CURVE_PX * bend / 1024;
+    *shift = -(heading[leg] * 1024 + turn[leg] * turned) * TURN_SKY_PX / 1024;
 }
 
 static void render_drive(uint32_t t) {
     uint32_t travel = t * DRIVE_SPEED;
-    int16_t  curve  = saver_curve(t);
-    draw_sky();
+    int16_t  curve, shift;
+    // Turning right swings the view right, so the sky slides left.
+    drive_route(t, &curve, &shift);
+    bool    sky_moved  = shift != sky_shift;
+    draw_sky(shift);
     draw_ground(travel, curve);
     int16_t top = draw_palms(travel, curve);
     draw_car(t, curve);
 
-    // Send from the highest row that changed, now or in the last frame.
-    uint8_t from   = top < saver_prev_top ? top : saver_prev_top;
+    // Send from the highest row that changed, now or in the last frame
+    // (all of it while the sky slides).
+    uint8_t from   = sky_moved ? 0 : top < saver_prev_top ? top : saver_prev_top;
     saver_prev_top = top;
     saver_send(from * SCENE_PX);
 }

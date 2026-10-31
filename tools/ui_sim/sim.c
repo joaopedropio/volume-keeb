@@ -136,11 +136,12 @@ int main(int argc, char **argv) {
         click(); // back to menu
     }
 
-    // Idle long enough for the screensaver, then a few frames of the drive.
+    // Idle long enough for the screensaver, then the drive along its whole
+    // route (four straights and turns), the sky sliding with the turns.
     tick(SAVER_AFTER_MS_DEFAULT + 100);
-    for (int f = 0; f < 6; f++) {
+    for (int f = 0; f < 12; f++) {
         snprintf(name, sizeof(name), "saver_%d", f); dump(name);
-        tick(f % 2 ? 1300 : 120);
+        tick(3000);
     }
     turn(true); // the knob stops it without changing anything
     tick(20);
