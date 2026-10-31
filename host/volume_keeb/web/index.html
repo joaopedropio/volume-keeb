@@ -105,6 +105,7 @@
   .preset .chips span { flex: 1; height: 18px; border-radius: 3px; border: 1px solid rgba(127,127,127,.25); }
   .preset b { font-size: 13px; font-weight: 600; text-transform: capitalize; }
   .label { font-size: 13px; color: var(--muted); margin: 0 0 6px; }
+  .seg + .label { margin-top: 16px; }
   .colors { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin-top: 18px; }
   .color {
     display: grid; grid-template-columns: 44px 1fr; gap: 10px; align-items: center;
@@ -246,6 +247,9 @@
     <div class="presets" id="presets"></div>
     <p class="label">Style</p>
     <div class="seg" id="decor"></div>
+    <p class="label">Menu</p>
+    <div class="seg" id="menu-layout"></div>
+    <p class="hint" id="menu-hint" style="margin-top: 6px"></p>
     <div class="colors" id="colors"></div>
   </section>
 
@@ -292,6 +296,11 @@ const COLOR_INFO = {
   accent: ["Accent", "Lit volume bar, selected row"],
   mute: ["Muted", "The MUTE label"],
 };
+const MENU_INFO = {
+  carousel: ["Carousel", "One app at a time, its neighbors at the sides"],
+  list: ["List", "Four apps per screen, with their songs"],
+  mixer: ["Mixer", "A fader per app: click one to grab it, turn to set its volume"],
+};
 const DECOR_LABEL = { flat: "Flat", boxed: "Boxed", bevel: "Bevel", neon: "Neon", dial: "Dial", vu: "VU meter", mixer: "Mixer" };
 const SAVER_INFO = {
   none: ["None", "Keep showing the controls", "—"],
@@ -307,7 +316,7 @@ const BUILTIN_FONT = '"DejaVu Sans Mono", Menlo, Consolas, monospace';
 
 let state = null;
 let theme = null;        // {preset, decor, colors}
-let screen = null;       // {saver, saver_after, off_after}
+let screen = null;       // {saver, saver_after, off_after, menu}
 let screenKind = "app";
 const fontFaces = {};    // slot -> CSS family for the preview, when custom
 
@@ -352,6 +361,9 @@ const ROW1_Y = 10, TITLE_Y = 40, BAR_Y = 106, BAR_H = 20, BAR_SEGMENTS = 30, BAR
 const BAR_SEG_W = Math.floor((TEXT_W - (BAR_SEGMENTS - 1) * BAR_GAP) / BAR_SEGMENTS);
 const LIST_ROWS = 4, LIST_ROW_H = 35, LIST_BOX_H = 32, LIST_TOP = Math.floor((H - LIST_ROWS * LIST_ROW_H) / 2);
 const LIST_PAD = 8, ACTIVE_DOT = 5, BOX_SHADOW = 2, BOX_BORDER = 1;
+const CARD_X0 = 72, CARD_X1 = W - 1 - CARD_X0, CARD_Y0 = 12, CARD_Y1 = 104, CARD_PAD = 12, CARD_BAR_H = 8;
+const PEEK_W = 56, PEEK_Y0 = 26, PEEK_Y1 = 90, MENU_DOTS_Y = 122;
+const STRIPS = 6, STRIP_W = Math.floor((W - 2 * MARGIN) / STRIPS), STRIP_Y0 = 30, STRIP_Y1 = 100;
 const BEVEL_DARK = [0, 0, 10];
 // The dial decor's App screen (keymap.c's DIAL_*/PANEL_*).
 const DIAL_W = 146, DIAL_CX = 71, DIAL_CY = 70, DIAL_R = 56, DIAL_DOT = 3, DIAL_FACE = 44;
@@ -598,7 +610,8 @@ function drawApp(t, decor) {
   }
 }
 
-function drawMenu(t, decor) {
+// The list: keymap.c's render_list_menu().
+function drawListMenu(t, decor) {
   rect(0, 0, W - 1, H - 1, t.bg);
   const x0 = MARGIN, x1 = W - MARGIN - 1 - BOX_SHADOW, textX = x0 + LIST_PAD;
   const volW = decor === "dial" || decor === "vu" || decor === "mixer" ? textWidth("ui", "MUTE") + LIST_PAD : 0, volX1 = x1 - LIST_PAD - ACTIVE_DOT - LIST_PAD;
@@ -629,6 +642,71 @@ function drawMenu(t, decor) {
       else text(textX + nameW, ty, "list", s, t.dim, rowBg);
     }
   });
+}
+
+// The carousel: keymap.c's render_carousel_menu().
+function cardColors(t, decor, big) {
+  const fill = decor === "dial" || (big && decor !== "flat" && decor !== "boxed") ? t.well : t.bg;
+  const ink = big && decor === "vu" ? t.bg : big ? t.fg : t.dim;
+  return { fill, ink };
+}
+function drawPeek(t, decor, x0, name) {
+  box(x0, PEEK_Y0, x0 + PEEK_W - 1, PEEK_Y1, t, decor, false, false);
+  const c = cardColors(t, decor, false);
+  text(x0 + 6, Math.floor((PEEK_Y0 + PEEK_Y1 - SLOT_H.ui) / 2), "ui", fit("ui", name, PEEK_W - 12), c.ink, c.fill);
+}
+function drawCarouselMenu(t, decor) {
+  rect(0, 0, W - 1, H - 1, t.bg);
+  const list = DEMO.list, cur = DEMO.cursor, [name, song, vol] = list[cur];
+  if (cur > 0) drawPeek(t, decor, MARGIN, list[cur - 1][0]);
+  if (cur + 1 < list.length) drawPeek(t, decor, W - MARGIN - PEEK_W - BOX_SHADOW, list[cur + 1][0]);
+  box(CARD_X0, CARD_Y0, CARD_X1, CARD_Y1, t, decor, decor === "neon" || decor === "vu", decor === "bevel");
+  const c = cardColors(t, decor, true), x = CARD_X0 + CARD_PAD, w = CARD_X1 - CARD_PAD - x;
+  text(x, CARD_Y0 + 9, "list", fit("list", name, w - 12), decor === "neon" ? t.accent : c.ink, c.fill);
+  const ty = CARD_Y0 + 41;
+  if (song) {
+    for (let i = 0; i < 5; i++) line(x + i, ty + 2 + i, x + i, ty + 10 - i, t.accent);
+    text(x + 12, ty, "ui", fit("ui", song, w - 12), t.dim, c.fill);
+  } else {
+    text(x, ty, "ui", "no media", t.dim, c.fill);
+  }
+  const vy = CARD_Y1 - CARD_PAD - SLOT_H.ui, bx1 = CARD_X1 - CARD_PAD - textWidth("ui", "MUTE") - 8;
+  const by = vy + Math.floor((SLOT_H.ui - CARD_BAR_H) / 2), lit = Math.floor((bx1 - x + 1) * vol / 100);
+  rect(x, by, bx1, by + CARD_BAR_H - 1, [t.dim[0], t.dim[1], Math.floor(t.dim[2] / 3)]);
+  if (lit) rect(x, by, x + lit - 1, by + CARD_BAR_H - 1, t.accent);
+  const v = String(vol);
+  text(CARD_X1 - CARD_PAD - textWidth("ui", v), vy, "ui", v, c.ink, c.fill);
+  const dx = Math.floor((W - list.length * 10) / 2) + 5;
+  list.forEach((_, i) => circle(dx + i * 10, MENU_DOTS_Y, i === cur ? 3 : 2, i === cur ? t.accent : [t.dim[0], t.dim[1], Math.floor(t.dim[2] / 2)]));
+}
+// The mixer: keymap.c's render_mixer_menu().
+function drawMixerMenu(t, decor) {
+  rect(0, 0, W - 1, H - 1, t.bg);
+  const list = DEMO.list, half = (c) => [c[0], c[1], Math.floor(c[2] / 2)];
+  const left = MARGIN + Math.floor((STRIPS - list.length) * STRIP_W / 2);
+  list.forEach(([name, song, vol], i) => {
+    const sel = i === DEMO.cursor, x0 = left + i * STRIP_W, x1 = x0 + STRIP_W - 5, cx = Math.floor((x0 + x1) / 2);
+    const fill = sel ? t.well : t.bg, ink = cardColors(t, decor, true).ink;
+    if (sel) { rect(x0, 2, x1, H - 3, t.well); rect(x0, 2, x1, 3, t.accent); }
+    const v = String(vol);
+    text(cx - Math.floor(textWidth("ui", v) / 2), 10, "ui", v, sel ? ink : t.dim, fill);
+    for (let k = 0; k <= 4; k++) {
+      const y = STRIP_Y1 - Math.floor(k * (STRIP_Y1 - STRIP_Y0) / 4);
+      line(cx - 14, y, cx - 9, y, half(t.dim)); line(cx + 9, y, cx + 14, y, half(t.dim));
+    }
+    rect(cx - 1, STRIP_Y0, cx + 1, STRIP_Y1, [t.dim[0], t.dim[1], Math.floor(t.dim[2] / 3)]);
+    faderCap(t, cx, STRIP_Y1 - Math.floor(vol * (STRIP_Y1 - STRIP_Y0) / 100), 11, sel ? ink : t.dim);
+    const shown = fit("ui", name, STRIP_W - 10), nw = textWidth("ui", shown), nx = cx - Math.floor(nw / 2);
+    text(nx, STRIP_Y1 + 10, "ui", shown, sel ? ink : t.dim, fill);
+    if (i === 0) rect(nx, STRIP_Y1 + 25, nx + nw - 1, STRIP_Y1 + 26, t.accent);
+    if (song) for (let k = 0; k < 4; k++) line(cx - 2 + k, STRIP_Y1 + 30 + k, cx - 2 + k, STRIP_Y1 + 36 - k, t.accent);
+  });
+}
+
+function drawMenu(t, decor) {
+  if (screen.menu === "list") return drawListMenu(t, decor);
+  if (screen.menu === "mixer") return drawMixerMenu(t, decor);
+  return drawCarouselMenu(t, decor);
 }
 
 function draw() {
@@ -757,7 +835,23 @@ function saveScreen() {
   }, 120);
 }
 
+function showScreen(kind) {
+  screenKind = kind;
+  for (const x of document.getElementById("screen-pick").children) x.classList.toggle("on", x.dataset.screen === kind);
+  draw();
+}
+
 function renderScreen() {
+  const menus = document.getElementById("menu-layout");
+  menus.innerHTML = "";
+  for (const m of state.menus) {
+    const b = document.createElement("button");
+    b.textContent = (MENU_INFO[m] || [m])[0];
+    b.className = screen.menu === m ? "on" : "";
+    b.onclick = () => { screen.menu = m; renderScreen(); showScreen("menu"); saveScreen(); };
+    menus.append(b);
+  }
+  document.getElementById("menu-hint").textContent = (MENU_INFO[screen.menu] || ["", ""])[1];
   const box = document.getElementById("savers");
   box.innerHTML = "";
   for (const name of state.savers) {
@@ -1064,9 +1158,7 @@ async function poll() {
 document.getElementById("screen-pick").onclick = e => {
   const b = e.target.closest("button");
   if (!b) return;
-  screenKind = b.dataset.screen;
-  for (const x of e.currentTarget.children) x.classList.toggle("on", x === b);
-  draw();
+  showScreen(b.dataset.screen);
 };
 
 (async function init() {

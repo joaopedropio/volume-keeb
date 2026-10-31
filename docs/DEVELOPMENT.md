@@ -128,7 +128,7 @@ Earlier revisions used a 1.3" OLED, then ST7789 and ILI9341 panels. Those are go
 
 `screen_t` has five screens: `SCREEN_LOADING` (from boot until the first app list, at least `LOADING_MIN_MS` and at most `HOST_WAIT_MS`), `SCREEN_MENU` and `SCREEN_APP` (with the host), and, without one, `SCREEN_HOME` and `SCREEN_SETTINGS`. Without a host the knob is a plain volume knob: on `SCREEN_HOME` the screensaver runs as the home screen (or `render_home_screen()`'s hints with `SAVER_NONE`), turning sends `KC_AUDIO_VOL_UP`/`KC_AUDIO_VOL_DOWN` and holding `KC_AUDIO_MUTE` (`extrakey` in `keyboard.json` adds the Consumer Control report for them), without the usual first-touch-only-wakes rule; a click opens `SCREEN_SETTINGS`, a list (`SET_*`) of what the knob can change by itself plus Exit, edited with a click on a row and turns. Holding, Exit, or `saver_after_ms` untouched goes back home. The list rows share `draw_row()`/`row_text()` with the menu.
 
-The settings (palette and decor, screensaver, its idle time, the screen-off time) are kept in EEPROM as `settings_t`, in QMK's user datablock (`EECONFIG_USER_DATA_SIZE` in `config.h`). Whatever sets them saves them: the host's `PALETTE_CMD`/`THEME_CMD`/`SCREEN_CMD` and the settings screen. A change on the settings screen also sets `changed_here` (kept in `settings_t` too, in what used to be padding): on connect the host asks first (`SETTINGS_QUERY_CMD`) and, if it's set, takes the knob's settings into its config before pushing them back (`Engine.adopt_knob_settings()`), so the knob's win; any of those three commands from the host clears it. `eeconfig_update_user_datablock()` only writes bytes that changed, so the host re-sending them on every connect costs nothing. They're loaded at boot. Bump `EECONFIG_USER_DATA_VERSION` when `settings_t` changes, so old data is ignored instead of misread.
+The settings (palette and decor, screensaver, its idle time, the screen-off time, the menu's layout) are kept in EEPROM as `settings_t`, in QMK's user datablock (`EECONFIG_USER_DATA_SIZE` in `config.h`). Whatever sets them saves them: the host's `PALETTE_CMD`/`THEME_CMD`/`SCREEN_CMD` and the settings screen. A change on the settings screen also sets `changed_here` (kept in `settings_t` too, in what used to be padding): on connect the host asks first (`SETTINGS_QUERY_CMD`) and, if it's set, takes the knob's settings into its config before pushing them back (`Engine.adopt_knob_settings()`), so the knob's win; any of those three commands from the host clears it. `eeconfig_update_user_datablock()` only writes bytes that changed, so the host re-sending them on every connect costs nothing. They're loaded at boot. Bump `EECONFIG_USER_DATA_VERSION` when `settings_t` changes, so old data is ignored instead of misread; `menu_layout` was added at the end without a bump, so it's range-checked on load and an older save keeps the default.
 
 ### Tuning constants
 
@@ -159,7 +159,7 @@ qmk compile -kb handwired/onekey/waveshare_rp2040_zero_volume -km diag
 
 ### Fonts
 
-`graphics/*.qff.c` are Quantum Painter fonts generated from DejaVu Sans Mono with `qmk painter-make-font-image` + `qmk painter-convert-font-image`. Don't hand-edit them; each file's header comment has the `painter-convert-font-image` arguments (`-f mono2`). The `--size` given to `painter-make-font-image` (with `--font /usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf`) is 11 for `font_ui` (13 px tall, header and labels) and 22 for `font_list` (24 px, the menu's app list, sized so 4 rows fill the screen).
+`graphics/*.qff.c` are Quantum Painter fonts generated from DejaVu Sans Mono with `qmk painter-make-font-image` + `qmk painter-convert-font-image`. Don't hand-edit them; each file's header comment has the `painter-convert-font-image` arguments (`-f mono2`). The `--size` given to `painter-make-font-image` (with `--font /usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf`) is 11 for `font_ui` (13 px tall, header and labels) and 22 for `font_list` (24 px, the menu's app names and the settings rows, sized so 4 rows fill the screen).
 
 ### Fonts uploaded from the host
 
@@ -231,12 +231,12 @@ It lands in `host\dist\volume-keeb.exe`. To run from source instead: `pip instal
 | host → knob | `0x6A` | Ask which fonts the slots hold |
 | host → knob | `0x6C` | Ask the firmware's version |
 | host → knob | `0x6D` | Ask the knob's settings (on connect, before sending the page's) |
-| host → knob | `0x6B` | Screen: screensaver kind, seconds before it starts, seconds before the screen turns off (0 = never), and a flag to start the screensaver now (the page's **Show on the knob**) |
+| host → knob | `0x6B` | Screen: screensaver kind, seconds before it starts, seconds before the screen turns off (0 = never), a flag to start the screensaver now (the page's **Show on the knob**), and the menu's layout (carousel, list, mixer; older hosts send 0, the carousel) |
 | knob → host | `0x70` | Action for one app id: `0` set volume, `1` toggle mute, `2` play/pause |
 | knob → host | `0x71` | Result of a font begin/end/clear |
 | knob → host | `0x72` | Each slot's font CRC (0 = built-in) |
 | knob → host | `0x73` | Firmware version: major, minor, patch. The v0.1.0 firmware doesn't answer `0x6C`, so silence means v0.1.0 |
-| knob → host | `0x74` | The knob's settings: a changed-on-the-knob flag, the palette and decor (as `0x65`), screensaver kind and its two times (as `0x6B`). Firmware before v0.4.0 doesn't answer, and the host pushes its own |
+| knob → host | `0x74` | The knob's settings: a changed-on-the-knob flag, the palette and decor (as `0x65`), screensaver kind and its two times and the menu's layout (as `0x6B`). Firmware before v0.4.0 doesn't answer, and the host pushes its own |
 
 ### Adding a theme
 

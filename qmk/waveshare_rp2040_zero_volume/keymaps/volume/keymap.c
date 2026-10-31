@@ -56,7 +56,8 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 //     SCREEN_CMD     data[1] = saver_t, data[2..3] = seconds without touching
 //                    the knob before the screensaver starts, data[4..5] =
 //                    seconds before the screen turns off (0 = never), data[6]
-//                    = 1 to start the screensaver right away (a preview).
+//                    = 1 to start the screensaver right away (a preview),
+//                    data[7] = the menu's layout (menu_layout_t).
 //   Host -> device, asked on every (re)connect:
 //     VERSION_QUERY_CMD replies VERSION_INFO_CMD.
 //     SETTINGS_QUERY_CMD replies SETTINGS_INFO_CMD, before the host sends
@@ -79,7 +80,8 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 //     SETTINGS_INFO_CMD data[1] = 1 if changed on the knob's settings screen
 //                    since a host last sent its own, data[2..19] = palette and
 //                    data[20] = decor (PALETTE_CMD's layout), data[21] =
-//                    saver_t, data[22..25] = SCREEN_CMD's two times.
+//                    saver_t, data[22..25] = SCREEN_CMD's two times,
+//                    data[26] = menu_layout_t.
 #define APP_BEGIN_CMD 0x60
 #define APP_ENTRY_CMD 0x61
 #define APP_END_CMD 0x62
@@ -252,6 +254,13 @@ static bool display_on = true; // false only while the host is suspended
 // What the screen does while the knob sits untouched (SCREEN_CMD, from the
 // host's settings page): a screensaver after saver_after_ms, the backlight
 // off after off_after_ms. These defaults hold until a host sends its own.
+// The menu's layout (SCREEN_CMD too, or the knob's settings). In the mixer
+// the knob also sets volumes: a click grabs the cursor's fader (mixer_grab)
+// and turning moves it, until another click lets go.
+typedef enum { MENU_CAROUSEL, MENU_LIST, MENU_MIXER, MENU_COUNT } menu_layout_t;
+static uint8_t menu_layout = MENU_CAROUSEL;
+static bool    mixer_grab;
+
 typedef enum { SAVER_NONE, SAVER_DRIVE, SAVER_STARS, SAVER_RAIN, SAVER_PLASMA, SAVER_BOUNCE, SAVER_COUNT } saver_t;
 static uint8_t  saver_kind     = SAVER_DRIVE;
 static uint32_t saver_after_ms = SAVER_AFTER_MS_DEFAULT;
@@ -353,8 +362,9 @@ static const int16_t vu_sincos[51][2] = {
     {784, 658},
 };
 
-// Menu screen: a vertical list, one app per row ("name - song title"),
-// scrolling to keep the cursor in view.
+// Menu screen, in one of three layouts (menu_layout, from the settings page
+// or the knob's settings). MENU_LIST: a vertical list, one app per row
+// ("name - song title"), scrolling to keep the cursor in view.
 #define LIST_ROWS 4
 #define LIST_ROW_H 35
 #define LIST_BOX_H 32 // leaves room below each row for DECOR_BOXED's shadow
@@ -362,6 +372,27 @@ static const int16_t vu_sincos[51][2] = {
 #define LIST_PAD 8
 #define ACTIVE_DOT 5 // marks the row of the app the App screen would show, independent of the cursor
 #define PILL_R 15
+
+// MENU_CAROUSEL: a carousel. The app under the cursor is a big card in the
+// middle (name, play state and title, volume), its neighbors smaller cards
+// peeking in at the sides, a dot per app along the bottom.
+#define CARD_X0 72
+#define CARD_X1 (LCD_WIDTH - 1 - CARD_X0)
+#define CARD_Y0 12
+#define CARD_Y1 104
+#define CARD_PAD 12
+#define PEEK_W 56
+#define PEEK_Y0 26
+#define PEEK_Y1 90
+#define MENU_DOTS_Y 122
+#define CARD_BAR_H 8
+
+// MENU_MIXER: up to STRIPS channel strips side by side, scrolling to keep
+// the cursor in view.
+#define STRIPS 6
+#define STRIP_W ((LCD_WIDTH - 2 * MARGIN) / STRIPS)
+#define STRIP_Y0 30
+#define STRIP_Y1 100
 
 // The ticker renders into an off-screen surface one glyph wider than the
 // title row on each side, so glyphs half past either edge get clipped by the
@@ -983,15 +1014,8 @@ static void row_text(uint16_t x, uint16_t y, const char *text, bool sel, bool fi
     }
 }
 
-static void render_menu_screen(void) {
+static void render_list_menu(void) {
     const theme_t *t = &theme;
-    lcd_clear_region(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
-    if (app_count == 0) {
-        const char *msg = "no apps";
-        uint16_t    w   = qp_textwidth(font_list, msg);
-        qp_drawtext_recolor(lcd, (LCD_WIDTH - w) / 2, (LCD_HEIGHT - LIST_CHAR_H) / 2, font_list, msg, CT(dim), CT(bg));
-        return;
-    }
 
     uint8_t start = 0;
     if (app_count > LIST_ROWS) {
@@ -1067,6 +1091,209 @@ static void render_menu_screen(void) {
     }
 }
 
+// Where a card's text sits: the box's fill, and the colors on it. The big
+// card is drawn as selected where that's an outline or the meter's face
+// (neon, VU), and sunk into an LCD well in the bevel theme.
+typedef struct {
+    uint8_t fill_h, fill_s, fill_v;
+    uint8_t ink_h, ink_s, ink_v;
+} card_colors_t;
+
+static card_colors_t card_colors(const theme_t *t, bool big) {
+    card_colors_t c = {CT(bg), CT(fg)};
+    if (t->decor == DECOR_DIAL || (big && t->decor != DECOR_FLAT && t->decor != DECOR_BOXED)) {
+        c.fill_h = t->well_h, c.fill_s = t->well_s, c.fill_v = t->well_v;
+    }
+    if (big && t->decor == DECOR_VU) {
+        c.ink_h = t->bg_h, c.ink_s = t->bg_s, c.ink_v = t->bg_v;
+    } else if (!big) {
+        c.ink_h = t->dim_h, c.ink_s = t->dim_s, c.ink_v = t->dim_v;
+    }
+    return c;
+}
+
+#define CC(field) c.field##_h, c.field##_s, c.field##_v
+
+// A neighbor's card at the side: just its name, as much as fits.
+static void draw_peek(uint16_t x0, const app_t *a) {
+    const theme_t *t = &theme;
+    draw_box(x0, PEEK_Y0, x0 + PEEK_W - 1, PEEK_Y1, t, false, false);
+    card_colors_t c = card_colors(t, false);
+    char          name[NAME_MAX + 3];
+    fit_text(a->name, name, sizeof(name), font_ui, PEEK_W - 12);
+    qp_drawtext_recolor(lcd, x0 + 6, (PEEK_Y0 + PEEK_Y1 - UI_CHAR_H) / 2, font_ui, name, CC(ink), CC(fill));
+}
+
+// MENU_MIXER: a channel strip per app -- its volume (or MUTE), a fader at
+// it, its name, underlined on the app the App screen would show, and a play
+// mark while it plays. The cursor's strip is lit; while it's grabbed
+// (mixer_grab), its cap is the accent and its track fills up to it.
+static void render_mixer_menu(void) {
+    const theme_t *t     = &theme;
+    uint8_t        start = 0;
+    if (app_count > STRIPS) {
+        if (menu_cursor > STRIPS / 2) start = menu_cursor - STRIPS / 2;
+        if (start > app_count - STRIPS) start = app_count - STRIPS;
+    }
+    uint8_t n = app_count - start;
+    if (n > STRIPS) n = STRIPS;
+    uint16_t      left = MARGIN + (STRIPS - n) * STRIP_W / 2;
+    card_colors_t c    = card_colors(t, true); // the lit strip's ink, like a big card's
+
+    for (uint8_t i = 0; i < n; i++) {
+        uint8_t  idx = start + i;
+        app_t   *a   = &apps[idx];
+        bool     sel = idx == menu_cursor;
+        uint16_t x0 = left + i * STRIP_W, x1 = x0 + STRIP_W - 5, cx = (x0 + x1) / 2;
+        uint8_t  fh = t->bg_h, fs = t->bg_s, fv = t->bg_v;
+        if (sel) {
+            qp_rect(lcd, x0, 2, x1, LCD_HEIGHT - 3, CT(well), true);
+            qp_rect(lcd, x0, 2, x1, 3, CT(accent), true);
+            fh = t->well_h, fs = t->well_s, fv = t->well_v;
+        }
+
+        char vol[6];
+        if (a->muted) {
+            strcpy(vol, "MUTE");
+        } else {
+            snprintf(vol, sizeof(vol), "%u", a->volume);
+        }
+        uint16_t vx = cx - qp_textwidth(font_ui, vol) / 2;
+        if (a->muted) {
+            qp_drawtext_recolor(lcd, vx, 10, font_ui, vol, CT(mute), fh, fs, fv);
+        } else if (sel) {
+            qp_drawtext_recolor(lcd, vx, 10, font_ui, vol, CC(ink), fh, fs, fv);
+        } else {
+            qp_drawtext_recolor(lcd, vx, 10, font_ui, vol, CT(dim), fh, fs, fv);
+        }
+
+        for (uint8_t k = 0; k <= 4; k++) {
+            uint16_t y = STRIP_Y1 - k * (STRIP_Y1 - STRIP_Y0) / 4;
+            qp_line(lcd, cx - 14, y, cx - 9, y, t->dim_h, t->dim_s, t->dim_v / 2);
+            qp_line(lcd, cx + 9, y, cx + 14, y, t->dim_h, t->dim_s, t->dim_v / 2);
+        }
+        uint8_t  pct = a->volume > 100 ? 100 : a->volume;
+        uint16_t cy  = STRIP_Y1 - pct * (STRIP_Y1 - STRIP_Y0) / 100;
+        qp_rect(lcd, cx - 1, STRIP_Y0, cx + 1, STRIP_Y1, t->dim_h, t->dim_s, t->dim_v / 3, true);
+        if (sel && mixer_grab && !a->muted) qp_rect(lcd, cx - 1, cy, cx + 1, STRIP_Y1, CT(accent), true);
+        if (sel && mixer_grab) {
+            draw_fader_cap(cx, cy, 11, CT(accent));
+        } else if (sel) {
+            draw_fader_cap(cx, cy, 11, CC(ink));
+        } else if (a->muted) {
+            draw_fader_cap(cx, cy, 11, t->dim_h, t->dim_s, t->dim_v / 2);
+        } else {
+            draw_fader_cap(cx, cy, 11, CT(dim));
+        }
+
+        char name[NAME_MAX + 3];
+        fit_text(a->name, name, sizeof(name), font_ui, STRIP_W - 10);
+        uint16_t nw = qp_textwidth(font_ui, name), nx = cx - nw / 2;
+        if (sel) {
+            qp_drawtext_recolor(lcd, nx, STRIP_Y1 + 10, font_ui, name, CC(ink), fh, fs, fv);
+        } else {
+            qp_drawtext_recolor(lcd, nx, STRIP_Y1 + 10, font_ui, name, CT(dim), fh, fs, fv);
+        }
+        if (idx == active_app) qp_rect(lcd, nx, STRIP_Y1 + 25, nx + nw - 1, STRIP_Y1 + 26, CT(accent), true);
+        if (a->has_media && a->playing) {
+            for (uint8_t k = 0; k < 4; k++) qp_line(lcd, cx - 2 + k, STRIP_Y1 + 30 + k, cx - 2 + k, STRIP_Y1 + 36 - k, CT(accent));
+        }
+    }
+
+    // Arrows at the edges while there are strips off the screen.
+    uint16_t ay = (STRIP_Y0 + STRIP_Y1) / 2;
+    for (uint8_t k = 0; k < 4; k++) {
+        if (start > 0) qp_line(lcd, 1 + k, ay - k, 1 + k, ay + k, CT(dim));
+        if (start + n < app_count) qp_line(lcd, LCD_WIDTH - 2 - k, ay - k, LCD_WIDTH - 2 - k, ay + k, CT(dim));
+    }
+}
+
+static void render_carousel_menu(void) {
+    const theme_t *t = &theme;
+    if (menu_cursor > 0) draw_peek(MARGIN, &apps[menu_cursor - 1]);
+    if (menu_cursor + 1 < app_count) draw_peek(LCD_WIDTH - MARGIN - PEEK_W - BOX_SHADOW, &apps[menu_cursor + 1]);
+
+    app_t *a = &apps[menu_cursor];
+    draw_box(CARD_X0, CARD_Y0, CARD_X1, CARD_Y1, t, t->decor == DECOR_NEON || t->decor == DECOR_VU, t->decor == DECOR_BEVEL);
+    card_colors_t c  = card_colors(t, true);
+    uint16_t      x  = CARD_X0 + CARD_PAD;
+    uint16_t      w  = CARD_X1 - CARD_PAD - x;
+
+    // The name, and a dot on the app the App screen would show.
+    char name[NAME_MAX + 3];
+    fit_text(a->name, name, sizeof(name), font_list, w - 12);
+    if (t->decor == DECOR_NEON) {
+        qp_drawtext_recolor(lcd, x, CARD_Y0 + 9, font_list, name, CT(accent), CC(fill));
+    } else {
+        qp_drawtext_recolor(lcd, x, CARD_Y0 + 9, font_list, name, CC(ink), CC(fill));
+    }
+    if (menu_cursor == active_app) qp_circle(lcd, CARD_X1 - CARD_PAD - 3, CARD_Y0 + 9 + LIST_CHAR_H / 2, 3, CT(accent), true);
+
+    // Play state and title.
+    uint16_t ty = CARD_Y0 + 41;
+    char     title[TITLE_MAX + 4];
+    if (a->has_media) {
+        uint16_t iy = ty + 2;
+        if (a->playing) {
+            for (uint8_t i = 0; i < 5; i++) qp_line(lcd, x + i, iy + i, x + i, iy + 8 - i, CT(accent));
+        } else {
+            qp_rect(lcd, x, iy, x + 1, iy + 8, CT(dim), true);
+            qp_rect(lcd, x + 4, iy, x + 5, iy + 8, CT(dim), true);
+        }
+        fit_text(a->title[0] ? a->title : (a->playing ? "playing" : "paused"), title, sizeof(title), font_ui, w - 12);
+        qp_drawtext_recolor(lcd, x + 12, ty, font_ui, title, CT(dim), CC(fill));
+    } else {
+        qp_drawtext_recolor(lcd, x, ty, font_ui, "no media", CT(dim), CC(fill));
+    }
+
+    // Volume: a bar and the number (or MUTE).
+    char vol[6];
+    if (a->muted) {
+        strcpy(vol, "MUTE");
+    } else {
+        snprintf(vol, sizeof(vol), "%u", a->volume);
+    }
+    uint16_t vy  = CARD_Y1 - CARD_PAD - UI_CHAR_H;
+    uint16_t bx1 = CARD_X1 - CARD_PAD - qp_textwidth(font_ui, "MUTE") - 8;
+    uint16_t by  = vy + (UI_CHAR_H - CARD_BAR_H) / 2;
+    uint8_t  pct = a->volume > 100 ? 100 : a->volume;
+    uint16_t lit = a->muted ? 0 : (uint32_t)(bx1 - x + 1) * pct / 100;
+    qp_rect(lcd, x, by, bx1, by + CARD_BAR_H - 1, t->dim_h, t->dim_s, t->dim_v / 3, true);
+    if (lit) qp_rect(lcd, x, by, x + lit - 1, by + CARD_BAR_H - 1, CT(accent), true);
+    uint16_t vx = CARD_X1 - CARD_PAD - qp_textwidth(font_ui, vol);
+    if (a->muted) {
+        qp_drawtext_recolor(lcd, vx, vy, font_ui, vol, CT(mute), CC(fill));
+    } else {
+        qp_drawtext_recolor(lcd, vx, vy, font_ui, vol, CC(ink), CC(fill));
+    }
+
+    // A dot per app, the cursor's lit.
+    uint16_t dx = (LCD_WIDTH - app_count * 10) / 2 + 5;
+    for (uint8_t i = 0; i < app_count; i++) {
+        if (i == menu_cursor) {
+            qp_circle(lcd, dx + i * 10, MENU_DOTS_Y, 3, CT(accent), true);
+        } else {
+            qp_circle(lcd, dx + i * 10, MENU_DOTS_Y, 2, t->dim_h, t->dim_s, t->dim_v / 2, true);
+        }
+    }
+}
+
+static void render_menu_screen(void) {
+    const theme_t *t = &theme;
+    lcd_clear_region(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
+    if (app_count == 0) {
+        const char *msg = "no apps";
+        uint16_t    w   = qp_textwidth(font_list, msg);
+        qp_drawtext_recolor(lcd, (LCD_WIDTH - w) / 2, (LCD_HEIGHT - LIST_CHAR_H) / 2, font_list, msg, CT(dim), CT(bg));
+        return;
+    }
+    switch (menu_layout) {
+        case MENU_LIST: render_list_menu(); break;
+        case MENU_MIXER: render_mixer_menu(); break;
+        default: render_carousel_menu(); break;
+    }
+}
+
 // ---------------------------------------------------------------------
 // Loading: right after boot, until the host app sends its first app list
 // (but at least LOADING_MIN_MS) or HOST_WAIT_MS passes. A bar fills over
@@ -1105,8 +1332,8 @@ static void render_loading_screen(void) {
 //             a screen of hints). Turning sends the volume media keys,
 //             holding sends mute, a click opens SETTINGS.
 //   SETTINGS  a header saying there's no app, and a list of what the knob
-//             can change by itself: the theme (the presets), the
-//             screensaver, its idle time and the screen-off time, and Exit.
+//             can change by itself: the theme (the presets), the menu's
+//             layout, the screensaver, its idle time and the screen-off time, and Exit.
 //             Click a row to edit it (its value gets arrows and turning
 //             changes it, live), click again to leave it. Exit, holding the
 //             knob or leaving it alone for saver_after_ms goes back HOME.
@@ -1114,7 +1341,7 @@ static void render_loading_screen(void) {
 // that connects later asks for them (SETTINGS_QUERY_CMD) and takes them
 // instead of sending its own, then brings back the menu.
 // ---------------------------------------------------------------------
-enum { SET_THEME, SET_SAVER, SET_SAVER_AFTER, SET_OFF_AFTER, SET_EXIT, SET_COUNT };
+enum { SET_THEME, SET_MENU, SET_SAVER, SET_SAVER_AFTER, SET_OFF_AFTER, SET_EXIT, SET_COUNT };
 #define SETTINGS_ROWS 3
 #define SETTINGS_TOP (LCD_HEIGHT - SETTINGS_ROWS * LIST_ROW_H)
 static uint8_t settings_cursor;
@@ -1122,7 +1349,8 @@ static bool    settings_editing;
 
 static const char *const theme_names[THEME_COUNT] = {"terminal", "neobrutal", "winamp", "neon", "studio", "hifi", "console"};
 static const char *const saver_names[SAVER_COUNT] = {"none", "drive", "stars", "rain", "plasma", "bounce"};
-static const char *const settings_labels[SET_COUNT] = {"Theme", "Screensaver", "Start after", "Screen off", "Exit"};
+static const char *const menu_names[MENU_COUNT]    = {"carousel", "list", "mixer"};
+static const char *const settings_labels[SET_COUNT] = {"Theme", "Menu", "Screensaver", "Start after", "Screen off", "Exit"};
 // The choices offered on the knob, in seconds (the settings page has the same).
 static const uint16_t saver_after_steps[] = {15, 30, 60, 120, 300, 600, 900, 1800, 3600};
 static const uint16_t off_after_steps[]   = {0, 60, 300, 600, 900, 1800, 3600, 7200, 14400};
@@ -1151,6 +1379,7 @@ static void settings_value(uint8_t item, char *out, size_t n) {
     int8_t ti = theme_index();
     switch (item) {
         case SET_THEME: snprintf(out, n, "%s", ti < 0 ? "custom" : theme_names[ti]); break;
+        case SET_MENU: snprintf(out, n, "%s", menu_names[menu_layout]); break;
         case SET_SAVER: snprintf(out, n, "%s", saver_names[saver_kind]); break;
         case SET_SAVER_AFTER: fmt_duration(out, n, saver_after_ms / 1000); break;
         case SET_OFF_AFTER: fmt_duration(out, n, off_after_ms / 1000); break;
@@ -1208,6 +1437,9 @@ static void settings_change(bool up) {
             set_theme(&themes[i]);
             break;
         }
+        case SET_MENU:
+            menu_layout = (menu_layout + (up ? 1 : MENU_COUNT - 1)) % MENU_COUNT;
+            break;
         case SET_SAVER:
             saver_kind = (saver_kind + (up ? 1 : SAVER_COUNT - 1)) % SAVER_COUNT;
             break;
@@ -1292,6 +1524,7 @@ static void home_light_up(void) {
 
 static void goto_menu(void) {
     screen            = SCREEN_MENU;
+    mixer_grab        = false;
     menu_cursor       = active_app;
     need_full_redraw  = true;
 }
@@ -1309,20 +1542,55 @@ static void handle_menu_select(void) {
     goto_app(menu_cursor);
 }
 
+// Turns app `id`'s volume a step up or down and tells the host.
+static void step_volume(uint8_t id, bool up) {
+    app_t  *a = &apps[id];
+    int16_t v = (int16_t)a->volume + (up ? VOLUME_STEP : -VOLUME_STEP);
+    if (v < 0) v = 0;
+    if (v > 100) v = 100;
+    a->volume = (uint8_t)v;
+    send_ctrl(id, ACTION_SET_VOLUME, a->volume);
+}
+
+static void toggle_mute(uint8_t id) {
+    apps[id].muted = !apps[id].muted;
+    send_ctrl(id, ACTION_TOGGLE_MUTE, 0);
+}
+
+// The App screen's clicks, and the mixer menu's: there a click grabs or
+// lets go of the cursor's fader, a double click opens the app, holding
+// mutes it.
 static void handle_app_single_click(void) {
+    if (screen == SCREEN_MENU) {
+        mixer_grab = !mixer_grab;
+        dirty_menu = true;
+        return;
+    }
     goto_menu();
 }
 
 static void handle_app_double_click(void) {
+    if (screen == SCREEN_MENU) {
+        if (app_count) goto_app(menu_cursor);
+        return;
+    }
     send_ctrl(active_app, ACTION_PLAYPAUSE, 0);
 }
 
 static void handle_app_hold(void) {
-    apps[active_app].muted = !apps[active_app].muted;
-    dirty_header              = true;
-    dirty_title                = true;
-    dirty_bar                   = true;
-    send_ctrl(active_app, ACTION_TOGGLE_MUTE, 0);
+    if (screen == SCREEN_MENU) {
+        if (app_count) toggle_mute(menu_cursor);
+        dirty_menu = true;
+        return;
+    }
+    toggle_mute(active_app);
+    dirty_header = true;
+    dirty_title  = true;
+    dirty_bar    = true;
+}
+
+static bool mixer_menu(void) {
+    return screen == SCREEN_MENU && menu_layout == MENU_MIXER;
 }
 
 bool encoder_update_user(uint8_t index, bool clockwise) {
@@ -1339,7 +1607,9 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
     }
     if (screen == SCREEN_MENU) {
         if (app_count == 0) return false;
-        if (clockwise) {
+        if (mixer_menu() && mixer_grab) {
+            step_volume(menu_cursor, clockwise);
+        } else if (clockwise) {
             if (menu_cursor + 1 < app_count) menu_cursor++;
         } else if (menu_cursor > 0) {
             menu_cursor--;
@@ -1347,14 +1617,9 @@ bool encoder_update_user(uint8_t index, bool clockwise) {
         dirty_menu = true;
     } else {
         if (app_count == 0) return false;
-        app_t  *a = &apps[active_app];
-        int16_t v = (int16_t)a->volume + (clockwise ? VOLUME_STEP : -VOLUME_STEP);
-        if (v < 0) v = 0;
-        if (v > 100) v = 100;
-        a->volume     = (uint8_t)v;
-        dirty_header  = true;
-        dirty_bar     = true;
-        send_ctrl(active_app, ACTION_SET_VOLUME, a->volume);
+        step_volume(active_app, clockwise);
+        dirty_header = true;
+        dirty_bar    = true;
     }
     return false;
 }
@@ -1400,7 +1665,7 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
         }
         return false;
     }
-    if (screen == SCREEN_MENU) {
+    if (screen == SCREEN_MENU && !mixer_menu()) {
         if (!record->event.pressed) {
             handle_menu_select();
         }
@@ -1478,6 +1743,7 @@ typedef struct {
     uint8_t  saver_kind;
     uint8_t  changed_here; // in what was padding, so 0 in older saves
     uint16_t saver_after_s, off_after_s;
+    uint8_t  menu_layout; // after what older saves held, so anything in them; checked on load
 } settings_t;
 _Static_assert(sizeof(settings_t) <= EECONFIG_USER_DATA_SIZE, "settings_t outgrew EECONFIG_USER_DATA_SIZE");
 
@@ -1489,6 +1755,7 @@ static void save_settings(void) {
     s.changed_here  = changed_here;
     s.saver_after_s = saver_after_ms / 1000;
     s.off_after_s   = off_after_ms / 1000;
+    s.menu_layout   = menu_layout;
     eeconfig_update_user_datablock(&s, 0, sizeof(s)); // only writes what changed
 }
 
@@ -1502,6 +1769,7 @@ static void load_settings(void) {
     changed_here   = s.changed_here;
     saver_after_ms = s.saver_after_s * 1000UL;
     off_after_ms   = s.off_after_s * 1000UL;
+    if (s.menu_layout < MENU_COUNT) menu_layout = s.menu_layout;
 }
 
 // (Re)loads `slot`'s font: the uploaded one if the slot holds a usable one,
@@ -1679,6 +1947,7 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
             reply[23]          = after_s >> 8;
             reply[24]          = off_s & 0xFF;
             reply[25]          = off_s >> 8;
+            reply[26]          = menu_layout;
             raw_hid_send(reply, sizeof(reply));
             break;
         }
@@ -1692,6 +1961,11 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
             saver_after_ms = read_le(&data[2], 2) * 1000;
             off_after_ms   = read_le(&data[4], 2) * 1000;
             if (saver_after_ms < 1000) saver_after_ms = 1000;
+            if (length >= 8 && data[7] < MENU_COUNT && data[7] != menu_layout) {
+                menu_layout = data[7];
+                mixer_grab  = false;
+                if (screen == SCREEN_MENU) need_full_redraw = true;
+            }
             save_settings();
             if (data[6] && saver_kind != SAVER_NONE && display_on) {
                 wake_ui();
@@ -2568,7 +2842,7 @@ void housekeeping_task_user(void) {
         }
     }
 
-    if (screen == SCREEN_APP) {
+    if (screen == SCREEN_APP || mixer_menu()) {
         if (click_down && !click_hold_fired && timer_elapsed32(click_press_start) >= HOLD_MS) {
             click_hold_fired = true;
             click_pending      = false;

@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, urlparse
 
 from . import qff
 from .engine import FontUploadError
-from .protocol import COLOR_FIELDS, DECORS, FONT_SLOTS, PRESETS, SAVERS
+from .protocol import COLOR_FIELDS, DECORS, FONT_SLOTS, MENUS, PRESETS, SAVERS
 from .tray import icon_png
 from .updates import UpdateError
 
@@ -151,6 +151,7 @@ class Handler(BaseHTTPRequestHandler):
             "screen": d["screen"],
             "updates": self.server.updates.state(),
             "savers": SAVERS,
+            "menus": MENUS,
             "presets": PRESETS,
             "decors": DECORS,
             "color_fields": COLOR_FIELDS,

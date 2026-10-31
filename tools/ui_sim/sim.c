@@ -91,6 +91,26 @@ static void click(void) {
     tick(DOUBLE_CLICK_MS + 50);
 }
 
+// SCREEN_CMD with the current screensaver settings and menu layout `m`.
+static void set_menu(uint8_t m) {
+    uint16_t after = saver_after_ms / 1000, off = off_after_ms / 1000;
+    uint8_t  p[RAW_EPSIZE] = {SCREEN_CMD, saver_kind, after & 0xFF, after >> 8, off & 0xFF, off >> 8, 0, m};
+    raw_hid_receive(p, sizeof(p));
+    tick(20);
+}
+
+static void double_click(void) {
+    keyrecord_t r = {{true}};
+    last_input = sim_now; process_record_user(ENC_CLICK, &r);
+    tick(20);
+    r.event.pressed = false; process_record_user(ENC_CLICK, &r);
+    tick(60);
+    r.event.pressed = true; process_record_user(ENC_CLICK, &r);
+    tick(20);
+    r.event.pressed = false; process_record_user(ENC_CLICK, &r);
+    tick(DOUBLE_CLICK_MS + 50);
+}
+
 int main(int argc, char **argv) {
     outdir = argc > 1 ? argv[1] : ".";
     keyboard_post_init_user();
@@ -124,6 +144,9 @@ int main(int argc, char **argv) {
         tick(20);
         turn(true); // cursor on Spotify
         snprintf(name, sizeof(name), "t%u_menu", th); dump(name);
+        set_menu(MENU_LIST); snprintf(name, sizeof(name), "t%u_menu_list", th); dump(name);
+        set_menu(MENU_MIXER); snprintf(name, sizeof(name), "t%u_menu_mixer", th); dump(name);
+        set_menu(MENU_CAROUSEL);
         for (int i = 0; i < 4; i++) turn(true); // scrolled list
         snprintf(name, sizeof(name), "t%u_menu_scrolled", th); dump(name);
         for (int i = 0; i < 4; i++) turn(false);
@@ -140,6 +163,19 @@ int main(int argc, char **argv) {
         snprintf(name, sizeof(name), "t%u_app_nomedia", th); dump(name);
         click();
     }
+
+    // The mixer menu sets volumes: click grabs Spotify's fader, turning
+    // moves it, a click lets go; holding mutes, a double click opens it.
+    send_snapshot(); set_menu(MENU_MIXER);
+    screen = SCREEN_MENU; menu_cursor = 1; need_full_redraw = true; tick(20);
+    click(); dump("mixer_grabbed");
+    turn(true); turn(true); dump("mixer_turned");
+    printf("Spotify's volume, expect 90: %u\n", apps[1].volume);
+    click(); turn(true); dump("mixer_let_go"); // the cursor moves again
+    send_snapshot(); // the host's next update, so it doesn't look gone
+    hold(); dump("mixer_muted");
+    double_click(); dump("mixer_opened");
+    click(); set_menu(MENU_CAROUSEL);
 
     // Idle long enough for the screensaver, then the drive along its whole
     // route (four straights and turns), the sky sliding with the turns.

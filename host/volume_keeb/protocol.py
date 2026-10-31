@@ -44,6 +44,9 @@ HEARTBEAT_S = 2  # firmware shows "no host" after 5 s without a packet
 COLOR_FIELDS = ("bg", "well", "fg", "dim", "accent", "mute")
 DECORS = ("flat", "boxed", "bevel", "neon", "dial", "vu", "mixer")
 
+# menu_layout_t's values, in order.
+MENUS = ("carousel", "list", "mixer")
+
 # saver_t's values, in order.
 SAVERS = ("none", "drive", "stars", "rain", "plasma", "bounce")
 
@@ -93,7 +96,7 @@ THEME_IDS = {"terminal": 0, "neobrutal": 1, "winamp": 2, "neon": 3, "studio": 4,
 FONT_SLOTS = {
     "ui": {"index": 0, "height": 13, "label": "Header (app name, volume)"},
     "title": {"index": 1, "height": 27, "label": "Song title"},
-    "list": {"index": 2, "height": 24, "label": "Menu list"},
+    "list": {"index": 2, "height": 24, "label": "Menu and settings"},
 }
 FONT_MAX_GLYPH_W = 32  # keymap.c's TICKER_PAD
 FONT_MAX_BYTES = 0x10000 - 256  # FONT_STORE_SLOT_SIZE minus the header page
@@ -109,10 +112,11 @@ def palette_packet(colors, decor):
     return payload + bytes([DECORS.index(decor)])
 
 
-def screen_packet(saver, saver_after, off_after, preview=False):
-    """The screensaver kind, and the seconds until it starts and until the
-    screen turns off (0 = never)."""
-    return bytes([SCREEN_CMD, SAVERS.index(saver)]) + struct.pack("<HH", saver_after, off_after) + bytes([int(preview)])
+def screen_packet(saver, saver_after, off_after, menu, preview=False):
+    """The screensaver kind, the seconds until it starts and until the
+    screen turns off (0 = never), and the menu's layout."""
+    return (bytes([SCREEN_CMD, SAVERS.index(saver)]) + struct.pack("<HH", saver_after, off_after)
+            + bytes([int(preview), MENUS.index(menu)]))
 
 
 def app_packets(apps):
@@ -144,11 +148,11 @@ def font_data_packets(slot, data):
 def parse_settings_info(report):
     """SETTINGS_INFO_CMD -> (changed on the knob?, colors, decor, screen),
     or None if it holds something this app doesn't know."""
-    if report[20] >= len(DECORS) or report[21] >= len(SAVERS):
+    if report[20] >= len(DECORS) or report[21] >= len(SAVERS) or report[26] >= len(MENUS):
         return None
     colors = {f: list(report[2 + 3 * i : 5 + 3 * i]) for i, f in enumerate(COLOR_FIELDS)}
     saver_after, off_after = struct.unpack_from("<HH", report, 22)
-    screen = {"saver": SAVERS[report[21]], "saver_after": saver_after, "off_after": off_after}
+    screen = {"saver": SAVERS[report[21]], "saver_after": saver_after, "off_after": off_after, "menu": MENUS[report[26]]}
     return bool(report[1]), colors, DECORS[report[20]], screen
 
 

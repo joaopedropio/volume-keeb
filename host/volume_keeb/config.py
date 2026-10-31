@@ -11,11 +11,11 @@ import sys
 import threading
 from pathlib import Path
 
-from .protocol import COLOR_FIELDS, DECORS, FONT_SLOTS, PRESETS, SAVERS
+from .protocol import COLOR_FIELDS, DECORS, FONT_SLOTS, MENUS, PRESETS, SAVERS
 
 DEFAULT_PRESET = "neon"
 DEFAULT_PORT = 8137
-DEFAULT_SCREEN = {"saver": "drive", "saver_after": 30, "off_after": 0}  # seconds; 0 = never
+DEFAULT_SCREEN = {"saver": "drive", "saver_after": 30, "off_after": 0, "menu": "carousel"}  # seconds; 0 = never
 MAX_SECONDS = 65535  # SCREEN_CMD's 16-bit fields
 
 
@@ -41,7 +41,7 @@ def _defaults():
 
 
 def _valid_screen(v):
-    return (isinstance(v, dict) and v.get("saver") in SAVERS
+    return (isinstance(v, dict) and v.get("saver") in SAVERS and v.get("menu") in MENUS
             and all(isinstance(v.get(k), int) and 0 <= v[k] <= MAX_SECONDS for k in ("saver_after", "off_after"))
             and v["saver_after"] >= 1)
 
@@ -72,6 +72,8 @@ class Config:
             d["decor"] = PRESETS[DEFAULT_PRESET]["decor"]
         colors = d["colors"] if isinstance(d["colors"], dict) else {}
         d["colors"] = {f: colors[f] if _valid_hsv(colors.get(f)) else PRESETS[DEFAULT_PRESET]["colors"][f] for f in COLOR_FIELDS}
+        if isinstance(d["screen"], dict):
+            d["screen"] = {**DEFAULT_SCREEN, **d["screen"]}  # settings saved before a key existed
         if not _valid_screen(d["screen"]):
             d["screen"] = dict(DEFAULT_SCREEN)
         d["screen"] = {k: d["screen"][k] for k in DEFAULT_SCREEN}
@@ -97,6 +99,8 @@ class Config:
             self.save()
 
     def set_screen(self, screen):
+        if isinstance(screen, dict):
+            screen = {**self.data["screen"], **screen}
         if not _valid_screen(screen):
             raise ValueError("bad screen settings")
         with self.lock:

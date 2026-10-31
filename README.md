@@ -235,9 +235,9 @@ The knob icon shows up in the tray; tick **Start with Windows** in its menu to h
 
 ## Settings page [🔼](#contents)
 
-- **Theme**: pick a preset, then change any of its six colors (background, panel, text, secondary, accent, muted) or its style (flat, boxed, bevel, neon). Changes show on the knob as you make them.
+- **Theme**: pick a preset, then change any of its six colors (background, panel, text, secondary, accent, muted) or its style (flat, boxed, bevel, neon, dial, VU meter, mixer), and the menu's layout (carousel, list or mixer, see [Using it](#using-it-)). Changes show on the knob as you make them.
 - **Screen**: pick a screensaver (or none), how long the knob sits untouched before it starts, and whether the screen turns off after a while (never, by default). **Show on the knob** starts it right away so you can see it.
-- **Fonts**: the header, the song title and the menu list each take their own font. Choose a `.ttf`/`.otf` file and a bit depth (1-bit for pixel fonts, 2- or 4-bit for smooth ones), check the preview and upload it. The app sizes it to fit, converts it and stores it in the knob's flash, where it stays across reboots and firmware updates. **Use built-in** goes back to the original font. Only basic ASCII is shown; accented letters lose their accents.
+- **Fonts**: the header, the song title and the app names in the menu and the settings each take their own font. Choose a `.ttf`/`.otf` file and a bit depth (1-bit for pixel fonts, 2- or 4-bit for smooth ones), check the preview and upload it. The app sizes it to fit, converts it and stores it in the knob's flash, where it stays across reboots and firmware updates. **Use built-in** goes back to the original font. Only basic ASCII is shown; accented letters lose their accents.
 
 Settings are saved on the computer (`~/.config/volume-keeb` or `%APPDATA%\volume-keeb`) and sent to the knob whenever it's plugged in, so a knob moved to another computer takes that computer's settings.
 
@@ -252,15 +252,20 @@ The app checks [the releases](https://github.com/joaopedropio/volume-keeb/releas
 
 When it's plugged in, the knob shows **volume-keeb** and *waiting for the computer* while the host app finds it. Then it has two screens:
 
-- **Menu**: a list of apps, one per line: `Master` (your default output) plus every app that's playing sound right now, each followed by the song it's playing, if any. A small dot marks the app the App screen would go back to.
+- **Menu**: `Master` (your default output) plus every app that's playing sound right now, in one of three layouts picked on the settings page or the knob's settings:
+  - **Carousel** (the default): the selected app is a big card in the middle with its name, whether it's playing or paused and the song, and its volume. The apps before and after it peek in at the sides, and a row of dots along the bottom shows where you are.
+  - **List**: four apps per screen, one per line, each followed by the song it's playing, if any.
+  - **Mixer**: a mixing desk, a channel strip per app (its volume, a fader and its name), six at a time. Here the knob sets volumes right in the menu: click a strip to grab its fader, turn to move it, click again to let go.
+
+  A dot (or, in the mixer, an underline) marks the app the App screen would go back to.
 - **App**: the app's name and volume (or `MUTE`) at the top, the media title (if any) in large text, crossing the screen from right to left, and a 30-segment volume bar along the bottom.
 
-| Action | Menu | App |
-|---|---|---|
-| Turn | Move the selection | Change that app's volume (5% per step) |
-| Click | Open the selected app | Back to the menu |
-| Double-click | — | Play/pause (apps with media controls) |
-| Click and hold | — | Mute / unmute |
+| Action | Menu (carousel, list) | Menu (mixer) | App |
+|---|---|---|---|
+| Turn | Move the selection | Move the selection, or the grabbed fader (5% per step) | Change that app's volume (5% per step) |
+| Click | Open the selected app | Grab the selected app's fader, or let go of it | Back to the menu |
+| Double-click | — | Open the selected app | Play/pause (apps with media controls) |
+| Click and hold | — | Mute / unmute the selected app | Mute / unmute |
 
 Long app names scroll.
 
@@ -278,7 +283,8 @@ The screensaver is the home screen (with **none** picked, a screen with the name
 
 | Setting | Choices |
 |---|---|
-| Theme | The four presets |
+| Theme | The seven presets |
+| Menu | carousel, list, mixer |
 | Screensaver | none, drive, stars, rain, plasma, bounce |
 | Start after | 15 s to 1 h (also how long the settings stay open untouched) |
 | Screen off | never, 1 min to 4 h |

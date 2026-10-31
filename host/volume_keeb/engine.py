@@ -138,7 +138,7 @@ class Engine:
 
     def push_screen(self, preview=False):
         s = self.config.data["screen"]
-        self.knob.write(screen_packet(s["saver"], s["saver_after"], s["off_after"], preview))
+        self.knob.write(screen_packet(s["saver"], s["saver_after"], s["off_after"], s["menu"], preview))
 
     def query_version(self):
         with self.font_lock:  # shares self.replies with the font commands
