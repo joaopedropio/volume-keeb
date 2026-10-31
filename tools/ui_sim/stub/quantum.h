@@ -38,3 +38,8 @@ static inline void gpio_write_pin_low(pin_t p) { (void)p; }
 static inline void raw_hid_send(uint8_t *d, uint8_t n) { (void)d; (void)n; }
 static inline void wait_ms(int ms) { (void)ms; }
 static inline void reset_keyboard(void) {}
+// The EEPROM's user datablock lives in memory (sim.c), blank at start like a
+// freshly flashed board.
+bool     eeconfig_is_user_datablock_valid(void);
+uint32_t eeconfig_read_user_datablock(void *data, uint32_t offset, uint32_t length);
+uint32_t eeconfig_update_user_datablock(const void *data, uint32_t offset, uint32_t length);

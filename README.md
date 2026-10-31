@@ -179,7 +179,7 @@ Use the [3D view](https://joaopedropio.github.io/volume-keeb/) to see where each
 
 Before anything is screwed down, plug the board in:
 
-1. The screen lights up and shows the UI. With no host app running yet there are no apps to pick.
+1. The screen lights up with *waiting for the computer*, then, since there's no host app yet, its own settings (**NO APP ON THIS COMPUTER**). Turning and clicking should move through them.
 2. Do [Step 7](#step-7-set-up-the-computer-) on your computer now. `Master` and any app playing sound appear on the screen.
 3. Turning the knob moves the selection; clicking opens the app; turning changes its volume on the computer.
 
@@ -262,7 +262,21 @@ When it's plugged in, the knob shows **volume-keeb** and *waiting for the comput
 | Double-click | — | Play/pause (apps with media controls) |
 | Click and hold | — | Mute / unmute |
 
-Long app names scroll. If the host app stops (or the computer sleeps), the app list clears after 5 s and the knob goes back to the menu.
+Long app names scroll.
+
+### Without the host app
+
+If the host app doesn't answer within 5 s of plugging in, or stops (the computer sleeps, the app is closed), the knob shows its own settings, headed **NO APP ON THIS COMPUTER**:
+
+| Setting | Choices |
+|---|---|
+| Theme | The four presets |
+| Screensaver | none, drive, stars, rain, plasma, bounce |
+| Start after | 15 s to 1 h |
+| Screen off | never, 1 min to 4 h |
+| Show screensaver | Click to see it |
+
+Turn to pick a row, click to change it (arrows appear around the value), turn to choose, click again when done. The knob keeps these settings, and the last ones the host app sent, across unplugging, so the screensaver and the screen-off timer behave the same on a computer without the app. When the host app connects, it sends the settings from its page, which win. The knob goes back to the menu as soon as it does.
 
 ## Themes [🔼](#contents)
 

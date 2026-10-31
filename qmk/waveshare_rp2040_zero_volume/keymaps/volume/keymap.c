@@ -106,6 +106,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 #define NAME_MAX 24
 #define TITLE_MAX 87
 #define HOST_STALE_MS 5000
+#define HOST_WAIT_MS 5000 // loading screen at boot: after this, assume there's no host app
 
 #define SAVER_AFTER_MS_DEFAULT 30000
 #define HOLD_MS 500
@@ -186,8 +187,11 @@ static bool    receiving_apps;
 static bool     host_seen;
 static uint32_t host_last_seen;
 
-typedef enum { SCREEN_MENU, SCREEN_APP } screen_t;
-static screen_t screen      = SCREEN_MENU;
+// LOADING waits for the host app after boot; SETTINGS replaces the menu
+// while there's no host app (see render_settings_screen()).
+typedef enum { SCREEN_LOADING, SCREEN_MENU, SCREEN_APP, SCREEN_SETTINGS } screen_t;
+static screen_t screen      = SCREEN_LOADING;
+static uint32_t boot_at;
 static uint8_t  menu_cursor = 0;
 static uint8_t  active_app  = 0;
 
@@ -231,6 +235,8 @@ static uint32_t woke_at;              // the host waking up counts as activity t
 static void     start_saver(void);
 static void     stop_saver(void);
 static bool     wake_ui(void);
+static void     set_theme(const theme_t *next);
+static void     save_settings(void);
 
 // Everything is drawn into `lcd`, a full-screen RGB565 framebuffer, and only
 // the rectangle of pixels that actually changed is sent to `panel` (see
@@ -560,6 +566,41 @@ static void render_app_screen(bool full) {
     draw_bar();
 }
 
+// List rows (the menu's apps, the settings): a box per row as the theme
+// draws them. A selected row is a solid accent bar, except in DECOR_NEON
+// where it's an accent outline and the text lights up instead; unselected
+// rows in the flat and neon themes are bare text. Returns whether the row is
+// filled, which row_text() needs to pick its colors.
+#define ROW_X0 MARGIN
+#define ROW_X1 (LCD_WIDTH - MARGIN - 1 - BOX_SHADOW)
+#define ROW_TEXT_X (ROW_X0 + LIST_PAD)
+static bool draw_row(uint16_t y0, bool sel) {
+    const theme_t *t = &theme;
+    if (sel || (t->decor != DECOR_FLAT && t->decor != DECOR_NEON)) {
+        draw_box(ROW_X0, y0, ROW_X1, y0 + LIST_BOX_H - 1, t, sel, false);
+    }
+    return sel && t->decor != DECOR_NEON;
+}
+
+// Text on a row: the main text in fg (accent when selected), `secondary`
+// text in the dim color (fg when selected).
+static void row_text(uint16_t x, uint16_t y, const char *text, bool sel, bool filled, bool secondary) {
+    const theme_t *t = &theme;
+    if (filled) {
+        qp_drawtext_recolor(lcd, x, y, font_list, text, CT(bg), CT(accent));
+    } else if (sel) {
+        if (secondary) {
+            qp_drawtext_recolor(lcd, x, y, font_list, text, CT(fg), CT(well));
+        } else {
+            qp_drawtext_recolor(lcd, x, y, font_list, text, CT(accent), CT(well));
+        }
+    } else if (secondary) {
+        qp_drawtext_recolor(lcd, x, y, font_list, text, CT(dim), CT(bg));
+    } else {
+        qp_drawtext_recolor(lcd, x, y, font_list, text, CT(fg), CT(bg));
+    }
+}
+
 static void render_menu_screen(void) {
     const theme_t *t = &theme;
     lcd_clear_region(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
@@ -579,28 +620,19 @@ static void render_menu_screen(void) {
     uint8_t visible = app_count - start;
     if (visible > LIST_ROWS) visible = LIST_ROWS;
 
-    uint16_t x0     = MARGIN;
-    uint16_t x1     = LCD_WIDTH - MARGIN - 1 - BOX_SHADOW;
-    uint16_t text_x = x0 + LIST_PAD;
-    uint16_t text_w = x1 - LIST_PAD - ACTIVE_DOT - LIST_PAD - text_x;
+    uint16_t text_w = ROW_X1 - LIST_PAD - ACTIVE_DOT - LIST_PAD - ROW_TEXT_X;
 
     for (uint8_t row = 0; row < visible; row++) {
-        uint8_t  idx = start + row;
-        app_t   *a   = &apps[idx];
-        bool     sel = idx == menu_cursor;
-        // A selected row is a solid accent bar, except in DECOR_NEON where
-        // it's an accent outline and the text lights up instead.
-        bool     filled = sel && t->decor != DECOR_NEON;
-        uint16_t y0  = LIST_TOP + row * LIST_ROW_H;
-        // Unselected rows in the flat theme are bare text, not outlined.
-        if (sel || (t->decor != DECOR_FLAT && t->decor != DECOR_NEON)) {
-            draw_box(x0, y0, x1, y0 + LIST_BOX_H - 1, t, sel, false);
-        }
+        uint8_t  idx    = start + row;
+        app_t   *a      = &apps[idx];
+        bool     sel    = idx == menu_cursor;
+        uint16_t y0     = LIST_TOP + row * LIST_ROW_H;
+        bool     filled = draw_row(y0, sel);
 
         // Marks whichever row the App screen would return to -- independent
         // of the navigation cursor, same idea as the reference's "ACTIVE" tag.
         if (idx == active_app) {
-            uint16_t dx = x1 - LIST_PAD - ACTIVE_DOT + 1;
+            uint16_t dx = ROW_X1 - LIST_PAD - ACTIVE_DOT + 1;
             uint16_t dy = y0 + (LIST_BOX_H - ACTIVE_DOT) / 2;
             if (filled) {
                 qp_rect(lcd, dx, dy, dx + ACTIVE_DOT - 1, dy + ACTIVE_DOT - 1, CT(bg), true);
@@ -613,13 +645,7 @@ static void render_menu_screen(void) {
         char     name[NAME_MAX + 3];
         fit_text(a->name, name, sizeof(name), font_list, text_w);
         uint16_t name_w = qp_textwidth(font_list, name);
-        if (filled) {
-            qp_drawtext_recolor(lcd, text_x, ty, font_list, name, CT(bg), CT(accent));
-        } else if (sel) {
-            qp_drawtext_recolor(lcd, text_x, ty, font_list, name, CT(accent), CT(well));
-        } else {
-            qp_drawtext_recolor(lcd, text_x, ty, font_list, name, CT(fg), CT(bg));
-        }
+        row_text(ROW_TEXT_X, ty, name, sel, filled, false);
 
         // The song title, if any, after the name in the secondary color.
         if (a->has_media && a->title[0] && name_w < text_w) {
@@ -627,15 +653,187 @@ static void render_menu_screen(void) {
             char fit[TITLE_MAX + 6];
             snprintf(song, sizeof(song), " - %s", a->title);
             fit_text(song, fit, sizeof(fit), font_list, text_w - name_w);
-            if (filled) {
-                qp_drawtext_recolor(lcd, text_x + name_w, ty, font_list, fit, CT(bg), CT(accent));
-            } else if (sel) {
-                qp_drawtext_recolor(lcd, text_x + name_w, ty, font_list, fit, CT(fg), CT(well));
-            } else {
-                qp_drawtext_recolor(lcd, text_x + name_w, ty, font_list, fit, CT(dim), CT(bg));
-            }
+            row_text(ROW_TEXT_X + name_w, ty, fit, sel, filled, true);
         }
     }
+}
+
+// ---------------------------------------------------------------------
+// Loading: right after boot, until the host app sends its first app list
+// or HOST_WAIT_MS passes. A bar fills over that time.
+// ---------------------------------------------------------------------
+#define LOADING_FRAME_MS 100
+#define LOADING_BAR_W 200
+#define LOADING_BAR_H 6
+static uint32_t loading_frame_time;
+
+static void render_loading_screen(void) {
+    const theme_t *t = &theme;
+    lcd_clear_region(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
+    const char *name = "volume-keeb";
+    uint16_t    w    = qp_textwidth(font_big, name);
+    qp_drawtext_recolor(lcd, (LCD_WIDTH - w) / 2, 32, font_big, name, CT(fg), CT(bg));
+
+    uint32_t elapsed = timer_elapsed32(boot_at);
+    char     msg[32];
+    uint8_t  dots = (elapsed / 400) % 4;
+    snprintf(msg, sizeof(msg), "waiting for the computer%.*s", dots, "...");
+    // Measured without the dots, so the text doesn't shift as they come and go.
+    uint16_t mw = qp_textwidth(font_ui, "waiting for the computer");
+    qp_drawtext_recolor(lcd, (LCD_WIDTH - mw) / 2, 74, font_ui, msg, CT(dim), CT(bg));
+
+    uint16_t x0 = (LCD_WIDTH - LOADING_BAR_W) / 2, y0 = 100;
+    uint16_t fill = elapsed >= HOST_WAIT_MS ? LOADING_BAR_W : elapsed * LOADING_BAR_W / HOST_WAIT_MS;
+    qp_rect(lcd, x0, y0, x0 + LOADING_BAR_W - 1, y0 + LOADING_BAR_H - 1, CT(dim), false);
+    if (fill > 2) qp_rect(lcd, x0 + 1, y0 + 1, x0 + fill - 2, y0 + LOADING_BAR_H - 2, CT(accent), true);
+}
+
+// ---------------------------------------------------------------------
+// Settings: what the menu becomes while there's no host app. A header says
+// so, and a list of what the knob can change on its own: the theme (the
+// presets), the screensaver, its idle time and the screen-off time, plus an
+// item that shows the screensaver. Click a row to edit it (its value gets
+// arrows and turning changes it, live), click again to leave it. Changes go
+// to EEPROM at once; a host app that connects later sends its own settings.
+// ---------------------------------------------------------------------
+enum { SET_THEME, SET_SAVER, SET_SAVER_AFTER, SET_OFF_AFTER, SET_PREVIEW, SET_COUNT };
+#define SETTINGS_ROWS 3
+#define SETTINGS_TOP (LCD_HEIGHT - SETTINGS_ROWS * LIST_ROW_H)
+static uint8_t settings_cursor;
+static bool    settings_editing;
+
+static const char *const theme_names[THEME_COUNT] = {"terminal", "neobrutal", "winamp", "neon"};
+static const char *const saver_names[SAVER_COUNT] = {"none", "drive", "stars", "rain", "plasma", "bounce"};
+static const char *const settings_labels[SET_COUNT] = {"Theme", "Screensaver", "Start after", "Screen off", "Show screensaver"};
+// The choices offered on the knob, in seconds (the settings page has the same).
+static const uint16_t saver_after_steps[] = {15, 30, 60, 120, 300, 600, 900, 1800, 3600};
+static const uint16_t off_after_steps[]   = {0, 60, 300, 600, 900, 1800, 3600, 7200, 14400};
+
+// themes[] index of the current palette, or -1 if the host set a custom one.
+static int8_t theme_index(void) {
+    for (uint8_t i = 0; i < THEME_COUNT; i++) {
+        if (memcmp(&theme, &themes[i], sizeof(theme)) == 0) return i;
+    }
+    return -1;
+}
+
+static void fmt_duration(char *out, size_t n, uint32_t sec) {
+    if (!sec) {
+        snprintf(out, n, "never");
+    } else if (sec % 3600 == 0) {
+        snprintf(out, n, "%lu h", (unsigned long)(sec / 3600));
+    } else if (sec % 60 == 0) {
+        snprintf(out, n, "%lu min", (unsigned long)(sec / 60));
+    } else {
+        snprintf(out, n, "%lu s", (unsigned long)sec);
+    }
+}
+
+static void settings_value(uint8_t item, char *out, size_t n) {
+    int8_t ti = theme_index();
+    switch (item) {
+        case SET_THEME: snprintf(out, n, "%s", ti < 0 ? "custom" : theme_names[ti]); break;
+        case SET_SAVER: snprintf(out, n, "%s", saver_names[saver_kind]); break;
+        case SET_SAVER_AFTER: fmt_duration(out, n, saver_after_ms / 1000); break;
+        case SET_OFF_AFTER: fmt_duration(out, n, off_after_ms / 1000); break;
+        default: out[0] = '\0';
+    }
+}
+
+static void render_settings_screen(void) {
+    const theme_t *t = &theme;
+    lcd_clear_region(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
+    uint16_t hy = (SETTINGS_TOP - UI_CHAR_H) / 2;
+    qp_drawtext_recolor(lcd, ROW_TEXT_X, hy, font_ui, "NO APP ON THIS COMPUTER", CT(mute), CT(bg));
+    const char *hint = settings_editing ? "turn to change, click when done" : "click to change";
+    qp_drawtext_recolor(lcd, ROW_X1 - LIST_PAD - qp_textwidth(font_ui, hint), hy, font_ui, hint, CT(dim), CT(bg));
+
+    uint8_t start = 0;
+    if (settings_cursor > SETTINGS_ROWS / 2) start = settings_cursor - SETTINGS_ROWS / 2;
+    if (start > SET_COUNT - SETTINGS_ROWS) start = SET_COUNT - SETTINGS_ROWS;
+    for (uint8_t row = 0; row < SETTINGS_ROWS; row++) {
+        uint8_t  item   = start + row;
+        bool     sel    = item == settings_cursor;
+        uint16_t y0     = SETTINGS_TOP + row * LIST_ROW_H;
+        uint16_t ty     = y0 + (LIST_BOX_H - LIST_CHAR_H) / 2;
+        bool     filled = draw_row(y0, sel);
+        row_text(ROW_TEXT_X, ty, settings_labels[item], sel, filled, false);
+
+        char value[24], shown[28];
+        settings_value(item, value, sizeof(value));
+        if (!value[0]) continue;
+        snprintf(shown, sizeof(shown), sel && settings_editing ? "< %s >" : "%s", value);
+        row_text(ROW_X1 - LIST_PAD - qp_textwidth(font_list, shown), ty, shown, sel, filled, !(sel && settings_editing));
+    }
+}
+
+// The next step above (or below) `cur` in a list of choices.
+static uint16_t step_choice(const uint16_t *steps, uint8_t n, uint32_t cur, bool up) {
+    if (up) {
+        for (uint8_t i = 0; i < n; i++) {
+            if (steps[i] > cur) return steps[i];
+        }
+        return steps[n - 1];
+    }
+    for (int8_t i = n - 1; i >= 0; i--) {
+        if (steps[i] < cur) return steps[i];
+    }
+    return steps[0];
+}
+
+static void settings_change(bool up) {
+    switch (settings_cursor) {
+        case SET_THEME: {
+            int8_t i = theme_index();
+            i        = i < 0 ? (up ? 0 : THEME_COUNT - 1) : (i + (up ? 1 : THEME_COUNT - 1)) % THEME_COUNT;
+            set_theme(&themes[i]);
+            break;
+        }
+        case SET_SAVER:
+            saver_kind = (saver_kind + (up ? 1 : SAVER_COUNT - 1)) % SAVER_COUNT;
+            break;
+        case SET_SAVER_AFTER:
+            saver_after_ms = step_choice(saver_after_steps, sizeof(saver_after_steps) / sizeof(saver_after_steps[0]), saver_after_ms / 1000, up) * 1000UL;
+            break;
+        case SET_OFF_AFTER:
+            off_after_ms = step_choice(off_after_steps, sizeof(off_after_steps) / sizeof(off_after_steps[0]), off_after_ms / 1000, up) * 1000UL;
+            break;
+    }
+    save_settings();
+}
+
+static void settings_turn(bool clockwise) {
+    if (settings_editing) {
+        settings_change(clockwise);
+    } else if (clockwise ? settings_cursor + 1 < SET_COUNT : settings_cursor > 0) {
+        settings_cursor += clockwise ? 1 : -1;
+    }
+    dirty_menu = true;
+}
+
+static void settings_click(void) {
+    if (settings_cursor == SET_PREVIEW) {
+        if (saver_kind != SAVER_NONE) start_saver();
+        return;
+    }
+    settings_editing = !settings_editing;
+    dirty_menu       = true;
+}
+
+// Every screen but the App screen redraws whole, on dirty_menu.
+static void render_list_screen(void) {
+    switch (screen) {
+        case SCREEN_LOADING: render_loading_screen(); break;
+        case SCREEN_SETTINGS: render_settings_screen(); break;
+        default: render_menu_screen(); break;
+    }
+}
+
+static void goto_settings(void) {
+    screen           = SCREEN_SETTINGS;
+    settings_cursor  = 0;
+    settings_editing = false;
+    need_full_redraw = true;
 }
 
 static void goto_menu(void) {
@@ -675,6 +873,11 @@ static void handle_app_hold(void) {
 
 bool encoder_update_user(uint8_t index, bool clockwise) {
     if (wake_ui()) return false;
+    if (screen == SCREEN_LOADING) return false;
+    if (screen == SCREEN_SETTINGS) {
+        settings_turn(clockwise);
+        return false;
+    }
     if (screen == SCREEN_MENU) {
         if (app_count == 0) return false;
         if (clockwise) {
@@ -709,6 +912,11 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
         return false;
     }
 
+    if (screen == SCREEN_LOADING) return false;
+    if (screen == SCREEN_SETTINGS) {
+        if (!record->event.pressed) settings_click();
+        return false;
+    }
     if (screen == SCREEN_MENU) {
         if (!record->event.pressed) {
             handle_menu_select();
@@ -763,6 +971,7 @@ static void apply_app_snapshot(void) {
     }
     host_seen      = true;
     host_last_seen = timer_read32();
+    if (screen == SCREEN_LOADING || screen == SCREEN_SETTINGS) goto_menu();
     if (changed) {
         dirty_menu         = true;
         dirty_header         = true;
@@ -775,6 +984,38 @@ static void set_theme(const theme_t *next) {
     if (memcmp(&theme, next, sizeof(theme)) == 0) return;
     theme            = *next;
     need_full_redraw = true;
+    save_settings();
+}
+
+// What the knob keeps in EEPROM: the last settings it got, from the host or
+// its own settings screen, so it behaves the same without the host app.
+// EECONFIG_USER_DATA_VERSION (config.h) must change with this layout.
+typedef struct {
+    theme_t  theme;
+    uint8_t  saver_kind;
+    uint16_t saver_after_s, off_after_s;
+} settings_t;
+_Static_assert(sizeof(settings_t) <= EECONFIG_USER_DATA_SIZE, "settings_t outgrew EECONFIG_USER_DATA_SIZE");
+
+static void save_settings(void) {
+    settings_t s;
+    memset(&s, 0, sizeof(s)); // the padding goes to EEPROM too
+    s.theme         = theme;
+    s.saver_kind    = saver_kind;
+    s.saver_after_s = saver_after_ms / 1000;
+    s.off_after_s   = off_after_ms / 1000;
+    eeconfig_update_user_datablock(&s, 0, sizeof(s)); // only writes what changed
+}
+
+static void load_settings(void) {
+    settings_t s;
+    if (!eeconfig_is_user_datablock_valid()) return;
+    eeconfig_read_user_datablock(&s, 0, sizeof(s));
+    if (s.theme.decor >= DECOR_COUNT || s.saver_kind >= SAVER_COUNT || !s.saver_after_s) return;
+    theme          = s.theme;
+    saver_kind     = s.saver_kind;
+    saver_after_ms = s.saver_after_s * 1000UL;
+    off_after_ms   = s.off_after_s * 1000UL;
 }
 
 // (Re)loads `slot`'s font: the uploaded one if the slot holds a usable one,
@@ -942,6 +1183,7 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
             saver_after_ms = read_le(&data[2], 2) * 1000;
             off_after_ms   = read_le(&data[4], 2) * 1000;
             if (saver_after_ms < 1000) saver_after_ms = 1000;
+            save_settings();
             if (data[6] && saver_kind != SAVER_NONE && display_on) {
                 wake_ui();
                 woke_at = timer_read32(); // so the preview isn't turned off right away
@@ -963,6 +1205,8 @@ void keyboard_post_init_user(void) {
     gpio_set_pin_output(LCD_BLK_PIN);
     LCD_BLK_ON();
     theme = themes[DEFAULT_THEME];
+    load_settings();
+    boot_at = timer_read32();
 
     panel = qp_nv3007_make_spi_device(LCD_PANEL_WIDTH, LCD_PANEL_HEIGHT, LCD_CS_PIN, LCD_DC_PIN, LCD_RST_PIN, LCD_SPI_DIVISOR, LCD_SPI_MODE);
     qp_init(panel, QP_ROTATION_90);
@@ -1693,9 +1937,9 @@ void housekeeping_task_user(void) {
         app_count  = 0;
         active_app = 0;
         menu_cursor = 0;
-        if (screen == SCREEN_APP) screen = SCREEN_MENU;
-        need_full_redraw = true;
+        goto_settings();
     }
+    if (screen == SCREEN_LOADING && timer_elapsed32(boot_at) > HOST_WAIT_MS) goto_settings();
 
     if (screen == SCREEN_APP) {
         if (click_down && !click_hold_fired && timer_elapsed32(click_press_start) >= HOLD_MS) {
@@ -1744,11 +1988,16 @@ void housekeeping_task_user(void) {
         }
     }
 
+    if (screen == SCREEN_LOADING && timer_elapsed32(loading_frame_time) >= LOADING_FRAME_MS) {
+        loading_frame_time = timer_read32();
+        dirty_menu         = true;
+    }
+
     if (need_full_redraw) {
-        if (screen == SCREEN_MENU) {
-            render_menu_screen();
-        } else {
+        if (screen == SCREEN_APP) {
             render_app_screen(true);
+        } else {
+            render_list_screen();
         }
         need_full_redraw = false;
         dirty_menu         = false;
@@ -1760,9 +2009,9 @@ void housekeeping_task_user(void) {
         return;
     }
 
-    if (screen == SCREEN_MENU) {
+    if (screen != SCREEN_APP) {
         if (dirty_menu) {
-            render_menu_screen();
+            render_list_screen();
             dirty_menu = false;
         }
     } else {

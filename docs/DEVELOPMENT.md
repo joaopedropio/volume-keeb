@@ -11,6 +11,7 @@ Everything you need to change the firmware, the host app or the case. If you onl
   - [Keyboard definition](#keyboard-definition)
   - [The SW pin is the only key](#the-sw-pin-is-the-only-key)
   - [Display and the NV3007 driver](#display-and-the-nv3007-driver)
+  - [Screens and settings without the host](#screens-and-settings-without-the-host)
   - [Tuning constants](#tuning-constants)
   - [Diagnostic keymaps](#diagnostic-keymaps)
   - [Fonts](#fonts)
@@ -123,6 +124,12 @@ Panel knobs in `config.h`:
 
 Earlier revisions used a 1.3" OLED, then ST7789 and ILI9341 panels. Those are gone from `keymaps/volume`; the `diag` keymap still uses the ST7789 constructor.
 
+### Screens and settings without the host
+
+`screen_t` has four screens: `SCREEN_LOADING` (from boot until the first app list, at most `HOST_WAIT_MS`), `SCREEN_MENU` and `SCREEN_APP` (with the host), and `SCREEN_SETTINGS`, which takes the menu's place while there's no host: a header and a list (`SET_*`) of what the knob can change by itself, edited with a click to enter a row and turns to change it. The list rows share `draw_row()`/`row_text()` with the menu.
+
+The settings (palette and decor, screensaver, its idle time, the screen-off time) are kept in EEPROM as `settings_t`, in QMK's user datablock (`EECONFIG_USER_DATA_SIZE` in `config.h`). Whatever sets them saves them: the host's `PALETTE_CMD`/`THEME_CMD`/`SCREEN_CMD` and the settings screen. `eeconfig_update_user_datablock()` only writes bytes that changed, so the host re-sending them on every connect costs nothing. They're loaded at boot. Bump `EECONFIG_USER_DATA_VERSION` when `settings_t` changes, so old data is ignored instead of misread.
+
 ### Tuning constants
 
 All in `keymaps/volume/keymap.c`:
@@ -133,7 +140,8 @@ All in `keymaps/volume/keymap.c`:
 | `HOLD_MS` | `500` | Click-and-hold time for mute. |
 | `DOUBLE_CLICK_MS` | `300` | Window for a double-click (play/pause). |
 | `SAVER_AFTER_MS_DEFAULT` | `30000` | Time without knob input (host updates don't count; a host wakeup restarts it) before the screensaver starts, until a host sends its own setting with `SCREEN_CMD`. The settings page also picks the screensaver (`saver_t`: none, drive, stars, rain, plasma, bounce) and a time after which the backlight goes off (default never). Every `SAVER_FRAME_MS` the drive, stars, rain and plasma draw straight into the framebuffer and send it to the panel (the drive only from the horizon or the tallest palm down); the bounce moves its text through the framebuffer like the UI does. All but the drive take their colors from the theme. The first turn or click after a screensaver or a dark screen only wakes it. Quantum Painter's own timeout is disabled in `config.h` (`QUANTUM_PAINTER_DISPLAY_TIMEOUT 0`): it sends DISPOFF, which turns the lit NV3007 white and fades it out slowly, so the screen goes dark by painting black and dropping the backlight. |
-| `HOST_STALE_MS` | `5000` | No packet from the host for this long clears the app list. |
+| `HOST_STALE_MS` | `5000` | No packet from the host for this long clears the app list and shows the knob's own settings screen. |
+| `HOST_WAIT_MS` | `5000` | How long the loading screen waits for the host's first app list after boot before showing the settings screen. |
 | `SCROLL_STEP_MS` | `350` | Marquee speed for app names that don't fit. |
 | `TICKER_STEP_PX`, `TICKER_STEP_MS` | `2`, `30` | The song title's speed across the screen, right to left. It's drawn into an RGB565 surface a glyph wider than the row on each side (so glyphs at the edges are cut, not dropped), and only the visible middle is sent to the panel. |
 | `MAX_APPS`, `NAME_MAX`, `TITLE_MAX` | `10`, `24`, `87` | Must match `host/volume_keeb/protocol.py`. |

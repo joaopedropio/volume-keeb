@@ -8,6 +8,12 @@ static uint32_t last_input = 1000;
 uint32_t last_input_activity_elapsed(void) { return sim_now - last_input; }
 uint16_t sim_fb[LCD_WIDTH * LCD_HEIGHT];
 
+static uint8_t sim_eeprom[EECONFIG_USER_DATA_SIZE];
+static bool    sim_eeprom_valid;
+bool eeconfig_is_user_datablock_valid(void) { return sim_eeprom_valid; }
+uint32_t eeconfig_read_user_datablock(void *data, uint32_t offset, uint32_t length) { memcpy(data, sim_eeprom + offset, length); return length; }
+uint32_t eeconfig_update_user_datablock(const void *data, uint32_t offset, uint32_t length) { memcpy(sim_eeprom + offset, data, length); sim_eeprom_valid = true; return length; }
+
 static const char *outdir;
 
 static void dump(const char *name) {
@@ -77,6 +83,18 @@ int main(int argc, char **argv) {
     outdir = argc > 1 ? argv[1] : ".";
     keyboard_post_init_user();
     char name[64];
+
+    // Boot with no host app: loading, then the knob's own settings.
+    tick(1000); dump("loading_1s");
+    tick(2600); dump("loading_3s");
+    tick(2000); dump("nohost_settings");
+    turn(true); dump("nohost_cursor");          // on Screensaver
+    click(); dump("nohost_editing");            // editing it
+    turn(true); dump("nohost_changed");         // drive -> stars
+    click(); turn(true); turn(true); turn(true); // leave, down to Show screensaver
+    dump("nohost_scrolled");
+    turn(false); turn(false); turn(false); turn(false); click(); turn(false); click(); // theme back one: neon -> winamp
+    dump("nohost_theme");
     for (uint8_t th = 0; th < THEME_COUNT; th++) {
         uint8_t p[RAW_EPSIZE] = {THEME_CMD, th};
         raw_hid_receive(p, sizeof(p));

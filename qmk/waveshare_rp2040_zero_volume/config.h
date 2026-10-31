@@ -56,6 +56,12 @@
 #define LCD_WIDTH 428
 #define LCD_HEIGHT 142
 
+// The keymap's settings (theme, screensaver, screen-off time) in EEPROM, so
+// the knob keeps them without the host app. Bump the version when the
+// layout of keymap.c's settings_t changes.
+#define EECONFIG_USER_DATA_SIZE 32
+#define EECONFIG_USER_DATA_VERSION 1
+
 // Fonts uploaded from the host (keymaps/volume/font_store.c): FONT_SLOTS
 // slots of FONT_STORE_SLOT_SIZE each, from 1 MB into the 2 MB flash -- far
 // past the firmware (under 100 kB) and clear of the wear-leveled EEPROM in
