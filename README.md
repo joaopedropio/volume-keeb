@@ -35,7 +35,7 @@ This README is a step-by-step guide to building your own. If you want to change 
 - **Media info**: the title of what's playing (from MPRIS on Linux, the media overlay's sessions on Windows: Spotify, browsers, most media players) shown large on the screen.
 - **Play/pause and mute** from the knob.
 - **Themes, colors and fonts from a settings page**: seven preset themes, `neon` (synthwave), `terminal` (green phosphor), `neobrutal` (cream, black and orange, hard shadows), `winamp` (the classic Winamp skin), `studio` (a volume dial), `hifi` (an analog VU meter) and `console` (a mixing desk), any color you like on top, and your own TrueType/OpenType fonts. The page runs on your computer and opens from a tray icon, like Jellyfin's.
-- **Screensavers**: after a while without touching the knob (30 s by default), the screen plays one of five animations: a synthwave drive (a car on a road through a striped sea, palm trees going by, a neon city under the stars), a flight through the stars, Matrix-style rain, a plasma in your theme's colors, or what's playing bouncing around. Or your own: turn up to three GIFs or still images into screensavers on the settings page's GIF page (made for 8-bit/pixel art: it shrinks them back to their own pixels and crops them to the screen). You can turn the screensaver off, and have the screen go dark after a set time. Turning or pressing the knob brings the UI back; that first touch does nothing else. The screen also goes dark while the computer is suspended.
+- **Screensavers**: after a while without touching the knob (30 s by default), the screen plays one of five animations: a synthwave drive (a car on a road through a striped sea, palm trees going by, a neon city under the stars), a flight through the stars, Matrix-style rain, a plasma in your theme's colors, or what's playing bouncing around. Or your own: turn up to three GIFs or still images into screensavers on the settings page's GIF page (made for 8-bit/pixel art: it shrinks them back to their own pixels and crops them to the screen). You can turn the screensaver off, and have the screen go dark after a set time. The knob also powers on straight into the screensaver. Turning or pressing the knob brings the UI back; that first touch does nothing else. The screen also goes dark while the computer is suspended.
 - **Wakes the computer** from suspend.
 - **Linux and Windows.**
 - **No drivers**: it's a plain USB HID device.
@@ -182,7 +182,7 @@ Use the [3D view](https://joaopedropio.github.io/volume-keeb/) to see where each
 
 Before anything is screwed down, plug the board in:
 
-1. The screen lights up with *waiting for the computer*, then, since there's no host app yet, the screensaver. Turning it changes the computer's volume; a click opens the knob's settings (**NO APP ON THIS COMPUTER**), where turning and clicking should move through them.
+1. The screen lights up with the screensaver (or, with none picked, *waiting for the computer* and then the hints). Turning it changes the computer's volume; a click opens the knob's settings (**NO APP ON THIS COMPUTER**), where turning and clicking should move through them.
 2. Do [Step 7](#step-7-set-up-the-computer-) on your computer now. `Master` and any app playing sound appear on the screen.
 3. Turning the knob moves the selection; clicking opens the app; turning changes its volume on the computer.
 

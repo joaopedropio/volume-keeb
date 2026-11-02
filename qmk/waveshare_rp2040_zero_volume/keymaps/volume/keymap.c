@@ -1543,7 +1543,7 @@ static void goto_home(void) {
     screen           = SCREEN_HOME;
     settings_editing = false;
     if (saver_kind != SAVER_NONE) {
-        start_saver();
+        if (!saver_on) start_saver(); // one running since boot carries on
     } else {
         stop_saver();
         need_full_redraw = true;
@@ -2150,6 +2150,9 @@ void keyboard_post_init_user(void) {
     qp_init(ticker_surface, QP_ROTATION_0);
 
     need_full_redraw = true;
+    // Power on straight into the screensaver; the loading screen carries on
+    // behind it, and the first touch shows whichever screen it got to.
+    if (saver_kind != SAVER_NONE) start_saver();
 }
 
 // The UI comes back by repainting everything: the screensaver and the blank
