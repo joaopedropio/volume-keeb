@@ -1,5 +1,5 @@
 [Unit]
-Description=volume-keeb: per-app volume knob sync and settings page
+Description=Volume Keeb: per-app volume knob sync and settings page
 After=pipewire-pulse.service pulseaudio.service
 
 [Service]

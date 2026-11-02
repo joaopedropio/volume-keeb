@@ -1,4 +1,4 @@
-"""volume-keeb's host app: keeps the knob's per-app mixer in step with the
+"""Volume Keeb's host app: keeps the knob's per-app mixer in step with the
 computer and serves the settings page (theme, colors, screensaver, fonts,
 updates) on localhost, with a tray icon to open it.
 

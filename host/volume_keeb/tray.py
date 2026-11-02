@@ -88,7 +88,7 @@ def run(url, autostart=None, updates=None, knob=None):
     images = {True: icon_image(), False: icon_image(connected=False)}
 
     def title(connected):
-        return "volume-keeb" if connected else "volume-keeb (knob not connected)"
+        return "Volume Keeb" if connected else "Volume Keeb (knob not connected)"
 
     icon = pystray.Icon("volume-keeb", images[True], title(True), menu=pystray.Menu(*items))
     if updates is not None:

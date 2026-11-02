@@ -13,29 +13,29 @@
 
 [Setup]
 AppId={{5B0C3E4A-8F2D-4C6B-9A71-3E5D2F1B7C90}
-AppName=volume-keeb
+AppName=Volume Keeb
 AppVersion={#AppVersion}
-AppVerName=volume-keeb {#AppVersion}
+AppVerName=Volume Keeb {#AppVersion}
 AppPublisher=joaopedropio
 AppPublisherURL=https://github.com/joaopedropio/volume-keeb
 AppSupportURL=https://github.com/joaopedropio/volume-keeb/issues
 AppUpdatesURL=https://github.com/joaopedropio/volume-keeb/releases/latest
 DefaultDirName={autopf}\volume-keeb
-DefaultGroupName=volume-keeb
+DefaultGroupName=Volume Keeb
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=dist
 OutputBaseFilename=volume-keeb-setup
 SetupIconFile=volume-keeb.ico
 UninstallDisplayIcon={app}\volume-keeb.exe
-UninstallDisplayName=volume-keeb
+UninstallDisplayName=Volume Keeb
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-VersionInfoProductName=volume-keeb
+VersionInfoProductName=Volume Keeb
 VersionInfoProductVersion={#AppVersion}
 VersionInfoVersion={#AppVersion}
-VersionInfoDescription=volume-keeb installer
+VersionInfoDescription=Volume Keeb installer
 VersionInfoCompany=joaopedropio
 VersionInfoCopyright=GPL-2.0-or-later
 ; An update closes the running app (it holds the .exe) and starts it again.
@@ -58,16 +58,22 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "dist\volume-keeb.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\volume-keeb"; Filename: "{app}\volume-keeb.exe"
-Name: "{group}\{cm:UninstallProgram,volume-keeb}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\volume-keeb"; Filename: "{app}\volume-keeb.exe"; Tasks: desktopicon
+Name: "{group}\Volume Keeb"; Filename: "{app}\volume-keeb.exe"
+Name: "{group}\{cm:UninstallProgram,Volume Keeb}"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\Volume Keeb"; Filename: "{app}\volume-keeb.exe"; Tasks: desktopicon
+
+[InstallDelete]
+; Shortcuts from before the app was called "Volume Keeb" (up to v0.6.1).
+Type: files; Name: "{group}\volume-keeb.lnk"
+Type: files; Name: "{group}\{cm:UninstallProgram,volume-keeb}.lnk"
+Type: files; Name: "{autodesktop}\volume-keeb.lnk"
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "volume-keeb"; \
     ValueData: """{app}\volume-keeb.exe"""; Tasks: autostart; Flags: uninsdeletevalue
 
 [Run]
-Filename: "{app}\volume-keeb.exe"; Parameters: "--open"; Description: "{cm:LaunchProgram,volume-keeb}"; \
+Filename: "{app}\volume-keeb.exe"; Parameters: "--open"; Description: "{cm:LaunchProgram,Volume Keeb}"; \
     Flags: nowait postinstall skipifsilent
 
 [UninstallRun]

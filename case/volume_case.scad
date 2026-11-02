@@ -1,4 +1,4 @@
-// volume-keeb case: a box after the MaxMix (maxmix_base_*.stl, reference
+// Volume Keeb case: a box after the MaxMix (maxmix_base_*.stl, reference
 // only), widened for the 2.79" NV3007 bar (78 x 25.9 module) on a 60° face at
 // the front, the 48 x 22 metal knob on the flat top behind it, sunk knob_sink
 // into a plain hole (no floor, so the top lifts straight off over it), and the

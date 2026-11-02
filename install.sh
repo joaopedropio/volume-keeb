@@ -1,7 +1,7 @@
 #!/bin/sh
-# Sets volume-keeb's host app up on this Linux computer: installs what it
+# Sets Volume Keeb's host app up on this Linux computer: installs what it
 # needs, lets your user talk to the knob, starts it at every login and adds
-# "volume-keeb settings" to the app menu. Run it again after moving the repo
+# "Volume Keeb settings" to the app menu. Run it again after moving the repo
 # or pulling a new version; `./install.sh --uninstall` undoes it.
 set -e
 cd "$(dirname "$0")"
@@ -14,7 +14,7 @@ URL=http://localhost:8137/
 say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 
 if [ "$1" = "--uninstall" ]; then
-    say "Removing volume-keeb"
+    say "Removing Volume Keeb"
     systemctl --user disable --now volume-sync 2>/dev/null || true
     rm -f "$UNIT_DIR/volume-sync.service" "$APPS_DIR/volume-keeb.desktop"
     systemctl --user daemon-reload
@@ -60,12 +60,12 @@ systemctl --user daemon-reload
 systemctl --user enable volume-sync
 systemctl --user restart volume-sync
 
-say "Adding \"volume-keeb settings\" to the app menu"
+say "Adding \"Volume Keeb settings\" to the app menu"
 mkdir -p "$APPS_DIR"
 cat > "$APPS_DIR/volume-keeb.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
-Name=volume-keeb settings
+Name=Volume Keeb settings
 Comment=Theme, colors and fonts of the volume knob
 Exec=xdg-open $URL
 Icon=audio-volume-high
@@ -76,7 +76,7 @@ sleep 2
 if systemctl --user is-active --quiet volume-sync; then
     say "All set"
     echo "Plug in the knob (unplug and replug it if it was already in)."
-    echo "Settings: the knob icon in the tray, \"volume-keeb settings\" in the app menu, or $URL"
+    echo "Settings: the knob icon in the tray, \"Volume Keeb settings\" in the app menu, or $URL"
     xdg-open "$URL" >/dev/null 2>&1 || true
 else
     echo "volume-sync didn't start; see: journalctl --user -u volume-sync" >&2

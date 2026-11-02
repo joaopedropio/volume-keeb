@@ -1342,7 +1342,7 @@ static uint32_t loading_frame_time;
 static void render_loading_screen(void) {
     const theme_t *t = &theme;
     lcd_clear_region(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
-    const char *name = "volume-keeb";
+    const char *name = "Volume Keeb";
     uint16_t    w    = qp_textwidth(font_big, name);
     qp_drawtext_recolor(lcd, (LCD_WIDTH - w) / 2, 32, font_big, name, CT(fg), CT(bg));
 
@@ -1514,7 +1514,7 @@ static void settings_click(void) {
 static void render_home_screen(void) {
     const theme_t *t = &theme;
     lcd_clear_region(0, 0, LCD_WIDTH - 1, LCD_HEIGHT - 1);
-    const char *name = "volume-keeb";
+    const char *name = "Volume Keeb";
     qp_drawtext_recolor(lcd, (LCD_WIDTH - qp_textwidth(font_big, name)) / 2, 26, font_big, name, CT(fg), CT(bg));
     const char *head = "NO APP ON THIS COMPUTER";
     qp_drawtext_recolor(lcd, (LCD_WIDTH - qp_textwidth(font_ui, head)) / 2, 72, font_ui, head, CT(mute), CT(bg));
@@ -2211,7 +2211,7 @@ static void flush_screen(void) {
 //   SAVER_STARS   flying through a star field, near stars streaking.
 //   SAVER_RAIN    columns of glyphs raining down, Matrix-style.
 //   SAVER_PLASMA  a slowly churning plasma cycling through the theme's colors.
-//   SAVER_BOUNCE  what's playing (or "volume-keeb") bouncing off the edges,
+//   SAVER_BOUNCE  what's playing (or "Volume Keeb") bouncing off the edges,
 //                 changing color at each bounce.
 //   SAVER_GIF1-3  an animation uploaded from the host's GIF page (an empty
 //                 slot shows the drive instead).
@@ -2874,7 +2874,7 @@ static void start_bounce(void) {
 
 static void render_bounce(void) {
     const theme_t *t = &theme;
-    char           title[TITLE_MAX + 1] = "volume-keeb", sub[NAME_MAX + 1] = "";
+    char           title[TITLE_MAX + 1] = "Volume Keeb", sub[NAME_MAX + 1] = "";
     for (uint8_t i = 0; i < app_count; i++) {
         if (apps[i].playing && apps[i].title[0]) {
             fit_text(apps[i].title, title, sizeof(title), font_big, BOUNCE_MAX_W);

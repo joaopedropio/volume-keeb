@@ -1,4 +1,4 @@
-# volume-keeb: development notes
+# Volume Keeb: development notes
 
 Everything you need to change the firmware, the host app or the case. If you only want to build one, read the [README](../README.md) instead.
 
@@ -331,7 +331,7 @@ Done so far, against [their terms](https://signpath.org/terms):
 - `LICENSE`: GPL-2.0-or-later (an OSI license is required; it matches QMK, which the firmware is built on).
 - The README's [Code signing policy](../README.md#code-signing-policy-) section (the attribution wording, roles, MFA, and a "Pending" note to delete once approved), its [Privacy](../README.md#privacy) part and [License](../README.md#license-) section, and a link to the policy from "Step 2: Download". The release notes link both too (`release.yml`'s `body`).
 - Privacy: the automatic update check can be turned off on the settings page ("Check automatically", config `check_updates`), and the installer shows `host/privacy-en.txt`/`privacy-pt.txt` before installing. The terms want both: the notice during installation and a way to disable what talks to the network.
-- Metadata: both `.exe` files carry product name `volume-keeb` and the version from `VERSION` (see [Building the Windows app](#building-the-windows-app)).
+- Metadata: both `.exe` files carry product name `Volume Keeb` and the version from `VERSION` (see [Building the Windows app](#building-the-windows-app)).
 
 - MFA is on for the GitHub account (turn it on for SignPath too once the account exists, and for anyone who joins the team).
 - v0.6.0 is the first release with `volume-keeb-setup.exe` in it (the terms want the project already released in the form to be signed).

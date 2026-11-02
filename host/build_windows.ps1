@@ -18,12 +18,12 @@ VSVersionInfo(
   kids=[
     StringFileInfo([StringTable('040904B0', [
       StringStruct('CompanyName', 'joaopedropio'),
-      StringStruct('FileDescription', 'volume-keeb'),
+      StringStruct('FileDescription', 'Volume Keeb'),
       StringStruct('FileVersion', '$version'),
       StringStruct('InternalName', 'volume-keeb'),
       StringStruct('LegalCopyright', 'GPL-2.0-or-later'),
       StringStruct('OriginalFilename', 'volume-keeb.exe'),
-      StringStruct('ProductName', 'volume-keeb'),
+      StringStruct('ProductName', 'Volume Keeb'),
       StringStruct('ProductVersion', '$version')])]),
     VarFileInfo([VarStruct('Translation', [1033, 1200])])
   ]

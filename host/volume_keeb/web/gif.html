@@ -732,7 +732,7 @@ async function loadKnob() {
   try {
     knob = await api('GET', '/api/state');
   } catch {
-    $('slots').innerHTML = '<p class="status err">volume-keeb isn\'t running.</p>';
+    $('slots').innerHTML = '<p class="status err">Volume Keeb isn\'t running.</p>';
     return;
   }
   if (knob.gifs_supported === false) status('sendStatus', 'The knob\'s firmware is too old for GIF screensavers: update it from the settings page.', true);

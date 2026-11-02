@@ -1,4 +1,6 @@
-# volume-keeb
+# Volume Keeb
+
+The project's name is "Volume Keeb" wherever people read it (docs, UI, the knob's screen, the installer, the USB product string); `volume-keeb` stays in identifiers: the repo and its URLs, release file names, config folders, the Windows Run value, the `X-Volume-Keeb` header.
 
 Volume-control knob on a Waveshare RP2040-Zero with an HW-040 rotary encoder (a KY-040 is meant to work too: same pins), running QMK. README.md is the build guide for people making their own (parts, printing, wiring, flashing, assembly, host setup); `docs/DEVELOPMENT.md` holds the technical notes (driver, protocol, case internals). Keep both in step when behavior, pins or parts change.
 

@@ -1,5 +1,5 @@
 {
-    "keyboard_name": "Waveshare RP2040-Zero Volume Knob",
+    "keyboard_name": "Volume Keeb",
     "processor": "RP2040",
     "bootloader": "rp2040",
     "matrix_pins": {

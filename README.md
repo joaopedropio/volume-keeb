@@ -1,4 +1,4 @@
-# volume-keeb 🎚️
+# Volume Keeb 🎚️
 
 A desk knob that works as a **per-app volume mixer**. Turn it to change the volume of Spotify, your browser, a game or the whole system. Click to pick an app, hold to mute, double-click to play/pause. A 2.79" bar-shaped LCD shows what's playing.
 
@@ -202,7 +202,7 @@ Everything mounts on the **base**. The top is only a cover that goes on last.
 
 ## Step 7: Set up the computer [🔼](#contents)
 
-The knob only shows apps while volume-keeb's host app runs on the computer. It sits in the background with a tray icon; **Settings** in the icon's menu (or <http://localhost:8137/>) opens the settings page in your browser.
+The knob only shows apps while Volume Keeb's host app runs on the computer. It sits in the background with a tray icon; **Settings** in the icon's menu (or <http://localhost:8137/>) opens the settings page in your browser.
 
 ### Linux
 
@@ -218,7 +218,7 @@ It asks for your password once, then:
 1. installs what the app needs (Python 3, Pillow, `pactl`, and the tray icon's pystray + AppIndicator) with `apt`, `pacman` or `dnf`;
 2. installs a udev rule so your user can talk to the knob without root;
 3. starts the app now and at every login (a systemd user service, `volume-sync`);
-4. adds **volume-keeb settings** to your app menu, and opens the settings page.
+4. adds **Volume Keeb settings** to your app menu, and opens the settings page.
 
 Plug the knob in (or replug it) and your apps show up on the screen. The knob icon in the tray (its screen green while the knob is connected, red while it isn't) and the app menu entry both open the settings page; so does <http://localhost:8137/>.
 
@@ -230,7 +230,7 @@ The tray icon needs a desktop with a system tray: GNOME needs the AppIndicator e
 
 ### Windows
 
-Download [`volume-keeb-setup.exe`](https://github.com/joaopedropio/volume-keeb/releases/latest/download/volume-keeb-setup.exe) and run it: Next, Next, Install. It installs for your user only (no admin prompt), adds volume-keeb to the Start menu, starts it with Windows unless you untick that, and opens the settings page when it's done. No Python, no driver, no permission setup for the knob. Uninstall it from **Settings → Apps**.
+Download [`volume-keeb-setup.exe`](https://github.com/joaopedropio/volume-keeb/releases/latest/download/volume-keeb-setup.exe) and run it: Next, Next, Install. It installs for your user only (no admin prompt), adds Volume Keeb to the Start menu, starts it with Windows unless you untick that, and opens the settings page when it's done. No Python, no driver, no permission setup for the knob. Uninstall it from **Settings → Apps**.
 
 The installer isn't signed, so the first time Windows SmartScreen says it "protected your PC": click **More info**, then **Run anyway**.
 
@@ -258,7 +258,7 @@ The app checks [the releases](https://github.com/joaopedropio/volume-keeb/releas
 
 ## Using it [🔼](#contents)
 
-When it's plugged in, the knob shows **volume-keeb** and *waiting for the computer* while the host app finds it. Then it has two screens:
+When it's plugged in, the knob starts on the screensaver (with none picked, it shows **Volume Keeb** and *waiting for the computer* while the host app finds it). Then it has two screens:
 
 - **Menu**: `Master` (your default output) plus every app that's playing sound right now, in one of three layouts picked on the settings page or the knob's settings:
   - **Carousel** (the default): the selected app is a big card in the middle with its name, whether it's playing or paused and the song, and its volume. The apps before and after it peek in at the sides, and a row of dots along the bottom shows where you are.

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>volume-keeb settings</title>
+<title>Volume Keeb settings</title>
 <link rel="icon" href="/favicon.png">
 <style>
   :root {
@@ -220,7 +220,7 @@
 <body>
 <header>
   <img src="/favicon.png" alt="">
-  <h1>volume-keeb</h1>
+  <h1>Volume Keeb</h1>
   <span class="pill" id="status">Connecting…</span>
 </header>
 
@@ -1150,7 +1150,7 @@ function renderUpdates(u) {
   const banner = document.getElementById("update-banner");
   banner.hidden = !(u.app_update || u.firmware_update);
   const what = u.app_update && u.firmware_update ? "the app and the knob's firmware" : u.app_update ? "the app" : "the knob's firmware";
-  banner.querySelector("span").replaceChildren(el("b", { textContent: `volume-keeb v${latest} is out` }), ` with updates for ${what}.`);
+  banner.querySelector("span").replaceChildren(el("b", { textContent: `Volume Keeb v${latest} is out` }), ` with updates for ${what}.`);
 }
 
 function alertMsg(box, text) {
@@ -1201,7 +1201,7 @@ async function poll() {
     } else if (was !== s.connected) renderScreen();
     renderUpdates(s.updates);
   } catch {
-    setStatus("bad", "volume-keeb isn't running");
+    setStatus("bad", "Volume Keeb isn't running");
   }
 }
 
@@ -1215,7 +1215,7 @@ document.getElementById("screen-pick").onclick = e => {
   try {
     state = await api("GET", "/api/state");
   } catch {
-    setStatus("bad", "volume-keeb isn't running");
+    setStatus("bad", "Volume Keeb isn't running");
     return;
   }
   theme = structuredClone(state.theme);
