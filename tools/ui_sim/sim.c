@@ -116,24 +116,26 @@ int main(int argc, char **argv) {
     keyboard_post_init_user();
     char name[64];
 
-    // Boot with no host app: loading, then the screensaver as home, where
-    // turning and holding are media keys and a click opens the settings.
-    tick(1000); dump("loading_1s");
+    // Boot with no host app: the screensaver from the start, the loading
+    // screen behind it (a touch shows it), then the screensaver as home,
+    // where turning and holding are media keys and a click opens the settings.
+    tick(1000); dump("boot_saver");
+    turn(true); dump("loading_1s");
     tick(2600); dump("loading_3s");
     tick(2000); dump("nohost_home");
     printf("expect vol+ vol- mute:\n");
     turn(true); turn(false); hold();
     tick(200); dump("nohost_home_after_keys"); // still the screensaver
     click(); dump("nohost_settings");
-    turn(true); dump("nohost_cursor");          // on Screensaver
+    turn(true); turn(true); dump("nohost_cursor"); // on Screensaver
     click(); dump("nohost_editing");            // editing it
     turn(false); dump("nohost_changed");        // drive -> none
     click(); turn(true); turn(true); turn(true); // leave, down to Exit
     dump("nohost_exit_row");
-    turn(false); turn(false); turn(false); turn(false); click(); turn(false); click(); // theme back one: neon -> winamp
+    turn(false); turn(false); turn(false); turn(false); turn(false); click(); turn(false); click(); // theme back one: neon -> winamp
     dump("nohost_theme");
     hold(); dump("nohost_home_none");           // held: home, no screensaver
-    click(); turn(true); click(); turn(true); click(); // screensaver none -> drive
+    click(); turn(true); turn(true); click(); turn(true); click(); // screensaver none -> drive
     turn(true); turn(true); turn(true); click(); // Exit
     tick(300); dump("nohost_home_drive");
     for (uint8_t th = 0; th < THEME_COUNT; th++) {
