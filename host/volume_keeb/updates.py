@@ -1,10 +1,11 @@
-"""Updates from the GitHub releases: checks for a newer one now and then,
+"""Updates from the GitHub releases: checks for a newer one now and then
+(unless that's turned off on the settings page; "Check now" still works),
 and puts its firmware on the knob from the settings page.
 
 Updating the firmware asks the running knob to reboot into the RP2040's
 BOOTSEL bootloader (BOOTLOADER_CMD), waits for the RPI-RP2 drive it shows
 up as and copies the release's .uf2 onto it, like flash.sh. The app itself
-isn't replaced: the page links to the new .exe on Windows and gives the
+isn't replaced: the page links to the new installer on Windows and gives the
 git command on Linux.
 """
 import json
@@ -25,6 +26,7 @@ LATEST_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 CHECK_EVERY_S = 6 * 3600
 UF2_NAME = "volume-keeb.uf2"
 EXE_NAME = "volume-keeb.exe"
+SETUP_NAME = "volume-keeb-setup.exe"
 UF2_MAX_BYTES = 4 * 1024 * 1024
 DRIVE_LABEL = "RPI-RP2"
 DRIVE_WAIT_S = 30
@@ -106,7 +108,7 @@ def find_drive():
 class Updates:
     def __init__(self, engine):
         self.engine = engine
-        self.latest = None  # {"version", "url", "uf2", "exe"} of the latest release
+        self.latest = None  # {"version", "url", "uf2", "exe", "setup"} of the latest release
         self.checked_at = 0.0
         self.error = ""
         self.job = {"state": "idle", "error": ""}  # the firmware update
@@ -117,7 +119,7 @@ class Updates:
         def loop():
             shown = None
             while True:
-                if time.time() - self.checked_at >= CHECK_EVERY_S:
+                if self.engine.config.data["check_updates"] and time.time() - self.checked_at >= CHECK_EVERY_S:
                     self.check()
                 # The firmware's version is only known once the knob connects.
                 now = (self.app_update(), self.firmware_update())
@@ -133,7 +135,7 @@ class Updates:
             rel = json.loads(_fetch(LATEST_URL, 1024 * 1024))
             assets = {a["name"]: a["browser_download_url"] for a in rel.get("assets", [])}
             self.latest = {"version": rel["tag_name"].lstrip("v"), "url": rel["html_url"],
-                           "uf2": assets.get(UF2_NAME), "exe": assets.get(EXE_NAME)}
+                           "uf2": assets.get(UF2_NAME), "exe": assets.get(EXE_NAME), "setup": assets.get(SETUP_NAME)}
             self.error = ""
         except (OSError, ValueError, KeyError, UpdateError) as e:
             self.error = f"couldn't check for updates: {e}"
@@ -161,6 +163,7 @@ class Updates:
             "app_update": self.app_update(),
             "firmware_update": self.firmware_update(),
             "checked_at": self.checked_at,
+            "auto": self.engine.config.data["check_updates"],
             "error": self.error,
             "job": self.job,
             "platform": "windows" if sys.platform == "win32" else "mac" if sys.platform == "darwin" else "linux",

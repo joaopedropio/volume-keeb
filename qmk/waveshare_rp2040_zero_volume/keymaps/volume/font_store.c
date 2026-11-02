@@ -96,6 +96,19 @@ uint32_t font_store_crc(uint8_t slot) {
     return h ? h->crc : 0;
 }
 
+// Called once per report while the host reads a slot back, so the header
+// is only sanity-checked: re-checking the CRC each time would take ~20 ms a
+// call for an animation, and the host checks the whole file against
+// font_store_crc() anyway.
+uint8_t font_store_read(uint8_t slot, uint32_t offset, uint8_t *buf, uint8_t n) {
+    if (slot >= STORE_SLOTS || (upload.active && upload.slot == slot)) return 0;
+    const slot_header_t *h = (const slot_header_t *)slot_ptr(slot);
+    if (h->magic != SLOT_MAGIC || h->length > DATA_MAX(slot) || offset >= h->length) return 0;
+    if (n > h->length - offset) n = h->length - offset;
+    memcpy(buf, slot_ptr(slot) + DATA_OFFSET + offset, n);
+    return n;
+}
+
 uint8_t font_store_begin(uint8_t slot, uint32_t length, uint32_t crc) {
     upload.active = false;
     if (slot >= STORE_SLOTS) return FONT_ERR_SLOT;

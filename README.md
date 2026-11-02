@@ -26,6 +26,8 @@ This README is a step-by-step guide to building your own. If you want to change 
 - [Themes](#themes-)
 - [Troubleshooting](#troubleshooting-)
 - [Credits](#credits-)
+- [Code signing policy](#code-signing-policy-)
+- [License](#license-)
 
 ## Features [🔼](#contents)
 
@@ -103,12 +105,13 @@ Heat the insert with the iron and push it straight in until it's flush. Let it c
 > [!NOTE]
 > Flash the board and test each part as you wire it. If something is wrong, it's much easier to fix before the case is closed.
 
-Everything is on the [latest release](https://github.com/joaopedropio/volume-keeb/releases/latest) page, under **Assets**:
+Everything is on the [latest release](https://github.com/joaopedropio/volume-keeb/releases/latest) page, under **Assets** (see the [code signing policy](#code-signing-policy-) for the Windows files):
 
 | File | What it is |
 |---|---|
 | [`volume-keeb.uf2`](https://github.com/joaopedropio/volume-keeb/releases/latest/download/volume-keeb.uf2) | The knob's firmware. |
-| [`volume-keeb.exe`](https://github.com/joaopedropio/volume-keeb/releases/latest/download/volume-keeb.exe) | The Windows app ([Step 7](#windows)). Linux users don't need it. |
+| [`volume-keeb-setup.exe`](https://github.com/joaopedropio/volume-keeb/releases/latest/download/volume-keeb-setup.exe) | The Windows app's installer ([Step 7](#windows)). Linux users don't need it. |
+| [`volume-keeb.exe`](https://github.com/joaopedropio/volume-keeb/releases/latest/download/volume-keeb.exe) | The same app without the installer, to run from anywhere. |
 | `volume_case-top.stl`, `volume_case-base.stl` | The case ([Step 1](#step-1-print-the-case-)). |
 
 Download `volume-keeb.uf2` now.
@@ -227,11 +230,15 @@ The tray icon needs a desktop with a system tray: GNOME needs the AppIndicator e
 
 ### Windows
 
-Download [`volume-keeb.exe`](https://github.com/joaopedropio/volume-keeb/releases/latest/download/volume-keeb.exe), put it anywhere you like (e.g. `Documents`) and run it. Nothing to install: no Python, no driver, no permission setup for the knob.
+Download [`volume-keeb-setup.exe`](https://github.com/joaopedropio/volume-keeb/releases/latest/download/volume-keeb-setup.exe) and run it: Next, Next, Install. It installs for your user only (no admin prompt), adds volume-keeb to the Start menu, starts it with Windows unless you untick that, and opens the settings page when it's done. No Python, no driver, no permission setup for the knob. Uninstall it from **Settings → Apps**.
 
-The `.exe` isn't signed, so the first time Windows SmartScreen says it "protected your PC": click **More info**, then **Run anyway**.
+The installer isn't signed, so the first time Windows SmartScreen says it "protected your PC": click **More info**, then **Run anyway**.
 
-The knob icon shows up in the tray; tick **Start with Windows** in its menu to have it run at login. When a new version is out, the tray menu and the settings page say so: quit it from the tray icon, replace the `.exe` with the new one (same place, so **Start with Windows** keeps working) and start it again.
+The knob icon shows up in the tray; **Start with Windows** in its menu turns starting at login on and off. When a new version is out, the tray menu and the settings page say so: download the new installer and run it, and it replaces the running app.
+
+Rather not install anything? [`volume-keeb.exe`](https://github.com/joaopedropio/volume-keeb/releases/latest/download/volume-keeb.exe) is the same app on its own: put it anywhere and run it; to update, quit it from the tray icon and replace the file (same place, so **Start with Windows** keeps working). To remove it, untick **Start with Windows** in the tray menu, quit it and delete the file.
+
+Either way, the settings, fonts and GIFs stay in `%APPDATA%\volume-keeb` (delete that folder too to remove everything) and on the knob. The installer shows what the app sends over the network ([Privacy](#privacy)) before installing.
 
 ## Settings page [🔼](#contents)
 
@@ -240,14 +247,14 @@ The knob icon shows up in the tray; tick **Start with Windows** in its menu to h
 - **GIF screensavers** (the **GIF page** link in Screen, or `http://localhost:8137/gif`): paste a link to a GIF or an image (PNG, JPEG, WebP; a Giphy or Tenor page works too) or drop a file; a still image makes a still screensaver. Turn it 90° either way or 180°, or mirror it, if it doesn't sit the way the screen does. The page finds how big one "8-bit" pixel is and shrinks the GIF back to one pixel per pixel; check it with the grid and the Source/Result switch, and fix the pixel size and offset by hand if it guessed wrong. **Similar shades** merges the off-by-a-bit colors JPEG and lossy GIFs leave around flat areas. Then pick how big the pixels show on the knob and drag the frame over the part of the image the screen should show. An image bigger than the screen starts shrunk to fit (scales under 1×, averaging or dropping pixels), or pick 1× and up to crop it instead. **Send to the knob** stores it in one of three slots (256 kB each, the page says how much it takes; use fewer frames, colors or a bigger scale if it doesn't fit) and makes it the screensaver.
 - **Fonts**: the header, the song title and the app names in the menu and the settings each take their own font. Choose a `.ttf`/`.otf` file and a bit depth (1-bit for pixel fonts, 2- or 4-bit for smooth ones), check the preview and upload it. The app sizes it to fit, converts it and stores it in the knob's flash, where it stays across reboots and firmware updates. **Use built-in** goes back to the original font. Only basic ASCII is shown; accented letters lose their accents.
 
-Settings are saved on the computer (`~/.config/volume-keeb` or `%APPDATA%\volume-keeb`) and sent to the knob whenever it's plugged in, so a knob moved to another computer takes that computer's settings.
+Settings are saved on the computer (`~/.config/volume-keeb` or `%APPDATA%\volume-keeb`) and sent to the knob whenever it's plugged in, so a knob moved to another computer takes that computer's theme and screen settings (unless they were changed on the knob itself). Fonts and GIFs stay with the knob: a computer it's plugged into reads them off it (a few seconds per GIF) and shows them on the page, instead of replacing them. That needs knob firmware v0.6.0 or newer; with older firmware the app leaves them alone.
 
 ### Updates
 
 The app checks [the releases](https://github.com/joaopedropio/volume-keeb/releases) every few hours. When there's a newer one, a banner on the settings page (and an item in the tray menu) says so, and the **Updates** section at the bottom of the page shows what to do:
 
 - **Knob firmware**: click **Update the knob**. The knob restarts in update mode, the app copies the new firmware onto it, and it comes back in about half a minute with your settings and fonts. Don't unplug it meanwhile.
-- **The app**: on Windows, download the new `volume-keeb.exe` from the link and swap it for the old one (see [Step 7](#windows)). On Linux, run `cd ~/volume-keeb && git pull && ./install.sh`.
+- **The app**: on Windows, download the new installer from the link and run it (or, without the installer, swap the `.exe`; see [Step 7](#windows)). On Linux, run `cd ~/volume-keeb && git pull && ./install.sh`.
 
 ## Using it [🔼](#contents)
 
@@ -333,3 +340,27 @@ Still stuck? There are two bring-up keymaps (`usbonly` and `diag`) described in 
 - [single-keeyb](https://github.com/joaopedropio/single-keeyb): the sibling macropad this project started from.
 - [snake-dongle](https://github.com/joaopedropio/snake-dongle): this README's format.
 - [QMK](https://qmk.fm) and its Quantum Painter.
+
+## Code signing policy [🔼](#contents)
+
+> Pending: the application to the SignPath Foundation is in review, so the current releases are still unsigned.
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+- **What gets signed**: the Windows app, `volume-keeb.exe` and `volume-keeb-setup.exe`, built from this repository by the [release workflow](.github/workflows/release.yml) on GitHub Actions. Nothing built anywhere else is signed.
+- **Committers and reviewers**: [joaopedropio](https://github.com/joaopedropio). Changes from anyone else (pull requests) are reviewed before they're merged.
+- **Approvers**: [joaopedropio](https://github.com/joaopedropio) approves every signing request by hand.
+- Every team member uses multi-factor authentication on GitHub and SignPath.
+
+### Privacy
+
+The app sends nothing about you or your computer anywhere. It only connects to the internet to:
+
+- check [this repository's latest release](https://api.github.com/repos/joaopedropio/volume-keeb/releases/latest) on GitHub every few hours, and download its firmware when you click **Update the knob**. Untick **Check automatically** in the settings page's Updates section to stop the automatic check; **Check now** still works. GitHub's side of it is covered by [GitHub's privacy statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement);
+- download a link you paste into the GIF page.
+
+Its settings page is served on `localhost` and can't be reached from other computers. Settings, fonts and GIFs stay on your computer and on the knob. On Linux, `install.sh --uninstall` removes what `install.sh` added; on Windows, see [Step 7](#windows).
+
+## License [🔼](#contents)
+
+[GPL-2.0-or-later](LICENSE), the same as [QMK](https://qmk.fm), which the firmware is built on.

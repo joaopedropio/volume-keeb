@@ -1,0 +1,13 @@
+﻿Privacy
+
+volume-keeb doesn't send anything about you or your computer anywhere. It only connects to the internet to:
+
+- ask GitHub (api.github.com) every few hours whether a newer release of volume-keeb is out, and download the knob's firmware from GitHub when you click "Update the knob". Turn the automatic check off in the settings page's Updates section ("Check automatically"). GitHub's privacy statement: https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement
+
+- download a link you paste into the GIF page yourself.
+
+The settings page is served on this computer only (localhost) and can't be reached from other computers. Settings, fonts and GIFs are kept in %APPDATA%\volume-keeb and on the knob.
+
+The installer adds volume-keeb to the Start menu and, if you leave "Start with Windows" ticked, to the programs that start when you sign in. Uninstall it from Settings > Apps; that removes both.
+
+Code signing policy: https://github.com/joaopedropio/volume-keeb#code-signing-policy-

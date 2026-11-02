@@ -35,10 +35,16 @@ def _defaults():
         "decor": preset["decor"],
         "colors": copy.deepcopy(preset["colors"]),
         "screen": dict(DEFAULT_SCREEN),
-        # slot -> {"name": original file name, "format": mono2/4/16, "size": pt, "crc": of the QFF}
+        # slot -> {"name": original file name, "format": mono2/4/16, "size": pt, "crc": of the QFF},
+        # or with "from_knob": true and no size when read back off the knob (no original file then)
         "fonts": {},
         # slot -> {"name", "w", "h", "scale", "frames", "bytes", "crc": of the animation}
         "gifs": {},
+        # font and gif slots changed here while the knob was away (or the
+        # upload failed): the next sync sends them. Every other slot takes
+        # what the knob has.
+        "pending": [],
+        "check_updates": True,  # ask GitHub for a newer release every few hours
         "port": DEFAULT_PORT,
     }
 
@@ -84,6 +90,10 @@ class Config:
         d["fonts"] = {s: v for s, v in fonts.items() if s in FONT_SLOTS and self.font_path(s, "qff").exists()}
         gifs = d["gifs"] if isinstance(d["gifs"], dict) else {}
         d["gifs"] = {s: v for s, v in gifs.items() if s in GIF_SLOTS and self.gif_path(s).exists()}
+        if not isinstance(d["check_updates"], bool):
+            d["check_updates"] = True
+        pending = d["pending"] if isinstance(d["pending"], list) else []
+        d["pending"] = [s for s in pending if s in FONT_SLOTS or s in GIF_SLOTS]
 
     def save(self):
         self.dir.mkdir(parents=True, exist_ok=True)
@@ -123,6 +133,15 @@ class Config:
             self.data["fonts"][slot] = info
             self.save()
 
+    def adopt_font(self, slot, qff, info):
+        """A font read back off the knob: only its QFF, not the file it was made from."""
+        with self.lock:
+            self.dir.mkdir(parents=True, exist_ok=True)
+            self.font_path(slot, "src").unlink(missing_ok=True)
+            self.font_path(slot, "qff").write_bytes(qff)
+            self.data["fonts"][slot] = info
+            self.save()
+
     def clear_font(self, slot):
         with self.lock:
             self.data["fonts"].pop(slot, None)
@@ -141,4 +160,19 @@ class Config:
         with self.lock:
             self.data["gifs"].pop(slot, None)
             self.gif_path(slot).unlink(missing_ok=True)
+            self.save()
+
+    def set_check_updates(self, on):
+        with self.lock:
+            self.data["check_updates"] = bool(on)
+            self.save()
+
+    def set_pending(self, slot, on):
+        with self.lock:
+            if on == (slot in self.data["pending"]):
+                return
+            if on:
+                self.data["pending"].append(slot)
+            else:
+                self.data["pending"].remove(slot)
             self.save()

@@ -166,21 +166,72 @@ def convert(font_bytes, slot, fmt):
     return qff, size
 
 
+def qff_format(qff):
+    """The FORMATS key of a QFF made by encode(), or None."""
+    fid = qff[21] if len(qff) > 21 else None
+    return next((k for k, v in FORMATS.items() if v["id"] == fid), None)
+
+
+def decode(qff):
+    """The glyphs of a QFF made by encode() (e.g. one read back off the
+    knob) -> (line height, bpp, [(width, levels)] for GLYPHS)."""
+    fmt = qff_format(qff)
+    if fmt is None or qff[:2] != b"\x00\xff" or qff[25] != 0x01:
+        raise FontError("not a QFF this app made")
+    height, bpp, use_rle = qff[17], FORMATS[fmt]["bpp"], qff[23]
+    table = qff[30 : 30 + 3 * len(GLYPHS)]
+    data_start = 30 + int.from_bytes(qff[27:30], "little") + 5
+    per_byte = 8 // bpp
+    glyphs = []
+    for i in range(len(GLYPHS)):
+        entry = int.from_bytes(table[3 * i : 3 * i + 3], "little")
+        width, pos = entry & 0x3F, data_start + (entry >> 6)
+        need = (width * height + per_byte - 1) // per_byte
+        raw = bytearray()
+        while len(raw) < need and pos < len(qff):
+            if not use_rle:
+                raw += qff[pos : pos + need]
+                break
+            b = qff[pos]
+            if b < 128:
+                raw += bytes([qff[pos + 1]]) * b
+                pos += 2
+            else:
+                raw += qff[pos + 1 : pos + b - 126]
+                pos += b - 126
+        mask = (1 << bpp) - 1
+        levels = [(raw[p // per_byte] >> (p % per_byte * bpp)) & mask if p // per_byte < len(raw) else 0
+                  for p in range(width * height)]
+        glyphs.append((width, levels))
+    return height, bpp, glyphs
+
+
 def preview(font_bytes, slot, fmt, text, fg=(255, 255, 255), bg=(0, 0, 0), scale=2):
     """PNG of `text` drawn the way the knob will draw it."""
     images, _ = render(font_bytes, FONT_SLOTS[slot]["height"], fmt)
     bpp = FORMATS[fmt]["bpp"]
+    glyphs = [(img.width, _quantize(img, bpp)) for img in images]
+    return _draw(images[0].height, bpp, glyphs, text, fg, bg, scale)
+
+
+def preview_qff(qff, text, fg=(255, 255, 255), bg=(0, 0, 0), scale=2):
+    """preview() for a font that's only a QFF."""
+    return _draw(*decode(qff), text, fg, bg, scale)
+
+
+def _draw(height, bpp, glyphs, text, fg, bg, scale):
     top = (1 << bpp) - 1
-    glyphs = [images[ord(c) - 0x20] for c in text if 0x20 <= ord(c) < 0x7F]
-    width = max(1, sum(g.width for g in glyphs))
-    out = Image.new("RGB", (width, images[0].height), bg)
+    used = [glyphs[ord(c) - 0x20] for c in text if 0x20 <= ord(c) < 0x7F]
+    width = max(1, sum(w for w, _ in used))
+    out = Image.new("RGB", (width, height), bg)
     x = 0
-    for g in glyphs:
-        levels = _quantize(g, bpp)
-        mask = Image.new("L", g.size)
+    for w, levels in used:
+        if not w:
+            continue
+        mask = Image.new("L", (w, height))
         mask.putdata([round(v * 255 / top) for v in levels])
-        out.paste(Image.new("RGB", g.size, fg), (x, 0), mask)
-        x += g.width
+        out.paste(Image.new("RGB", (w, height), fg), (x, 0), mask)
+        x += w
     out = out.resize((out.width * scale, out.height * scale), Image.NEAREST)
     buf = io.BytesIO()
     out.save(buf, "PNG")

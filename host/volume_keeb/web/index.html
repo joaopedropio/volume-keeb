@@ -274,13 +274,14 @@
 
   <section id="updates">
     <h2>Updates</h2>
-    <p class="hint">New versions come out on <a id="releases-link" href="https://github.com/joaopedropio/volume-keeb/releases" target="_blank" rel="noopener">GitHub</a>. This app checks every few hours.</p>
+    <p class="hint">New versions come out on <a id="releases-link" href="https://github.com/joaopedropio/volume-keeb/releases" target="_blank" rel="noopener">GitHub</a>. This app asks GitHub for the latest one every few hours, unless you turn that off below; nothing about you or your computer is sent.</p>
     <div class="update-rows">
       <div class="update-row" id="update-app"></div>
       <div class="update-row" id="update-fw"></div>
     </div>
     <div class="row" style="margin-top: 12px">
       <button class="btn" id="check-updates">Check now</button>
+      <label class="msg"><input type="checkbox" id="auto-updates"> Check automatically</label>
       <span class="msg" id="checked-msg"></span>
     </div>
   </section>
@@ -916,7 +917,7 @@ document.getElementById("saver-preview").onclick = () => {
 
 async function loadFontFace(slot) {
   const custom = state.fonts[slot].custom;
-  if (!custom) { delete fontFaces[slot]; return; }
+  if (!custom || custom.from_knob) { delete fontFaces[slot]; return; }  // from the knob: no font file here
   const family = `vk-${slot}-${custom.crc}`;
   if (fontFaces[slot] === family) return;
   try {
@@ -933,7 +934,8 @@ function describe(slot) {
   if (!f.custom) return "Built-in (DejaVu Sans Mono)";
   const fmt = { mono2: "1-bit", mono4: "2-bit", mono16: "4-bit" }[f.custom.format] || f.custom.format;
   const kb = f.custom.bytes ? ` · ${(f.custom.bytes / 1024).toFixed(1)} kB` : "";
-  return `${f.custom.name} · ${fmt} · ${f.custom.size} px${kb}`;
+  const px = f.custom.size ? ` · ${f.custom.size} px` : "";
+  return `${f.custom.name} · ${fmt}${px}${kb}`;
 }
 
 function showSample(slot) {
@@ -1010,7 +1012,8 @@ function renderFonts() {
       ui.upload.disabled = !ui.file;
       showSample(slot);
     };
-    ui.format.onchange = () => { if (ui.file) showSample(slot); else if (f.custom) ui.upload.disabled = false; };
+    // A font read off the knob has no original file to convert again.
+    ui.format.onchange = () => { if (ui.file) showSample(slot); else if (f.custom && !f.custom.from_knob) ui.upload.disabled = false; };
     ui.upload.onclick = () => uploadFont(slot);
     ui.reset.onclick = () => resetFont(slot);
     box.append(card);
@@ -1097,7 +1100,11 @@ function renderUpdates(u) {
   const app = document.getElementById("update-app");
   app.replaceChildren(head("App", `v${u.app_version}` + (u.app_update ? ` → v${latest} available` : latest ? " · up to date" : ""), u.app_update));
   if (u.app_update) {
-    if (u.platform === "windows" && u.latest.exe) {
+    if (u.platform === "windows" && u.latest.setup) {
+      app.append(
+        el("p", { textContent: "Download the new installer and run it: it closes this app, updates it and starts it again." }),
+        el("div", {}, el("a", { className: "btn primary", href: u.latest.setup, textContent: `Download volume-keeb-setup.exe v${latest}` })));
+    } else if (u.platform === "windows" && u.latest.exe) {
       app.append(
         el("p", { textContent: "Download the new volume-keeb.exe, quit this one from its tray icon (Quit), put the new file where the old one was and start it." }),
         el("div", {}, el("a", { className: "btn primary", href: u.latest.exe, textContent: `Download volume-keeb.exe v${latest}` })));
@@ -1135,9 +1142,10 @@ function renderUpdates(u) {
       textContent: u.job.state === "error" ? `Update failed: ${u.job.error}` : JOB_TEXT[u.job.state] || u.job.state }));
   }
 
+  document.getElementById("auto-updates").checked = u.auto;
   const checked = document.getElementById("checked-msg");
   checked.className = "msg" + (u.error ? " bad" : "");
-  checked.textContent = u.error || (u.checked_at ? `Last checked ${new Date(u.checked_at * 1000).toLocaleString()}` : "Checking…");
+  checked.textContent = u.error || (u.checked_at ? `Last checked ${new Date(u.checked_at * 1000).toLocaleString()}` : u.auto ? "Checking…" : "");
 
   const banner = document.getElementById("update-banner");
   banner.hidden = !(u.app_update || u.firmware_update);
@@ -1154,6 +1162,11 @@ document.getElementById("check-updates").onclick = async e => {
   try { renderUpdates(await api("POST", "/api/updates/check")); }
   catch (err) { document.getElementById("checked-msg").textContent = err.message; }
   e.target.disabled = false;
+};
+
+document.getElementById("auto-updates").onchange = async e => {
+  try { renderUpdates(await api("PUT", "/api/updates/auto", JSON.stringify({ on: e.target.checked }), { "Content-Type": "application/json" })); }
+  catch (err) { document.getElementById("checked-msg").textContent = err.message; }
 };
 
 // ---- status ------------------------------------------------------------------
@@ -1179,7 +1192,13 @@ async function poll() {
     state.fonts_supported = s.fonts_supported;
     state.gifs_supported = s.gifs_supported;
     showConnection(s);
-    if (was !== s.connected) renderScreen();
+    if (s.store_rev !== state.store_rev) {  // fonts or gifs read off the knob
+      state = s;
+      await Promise.all(Object.keys(state.fonts).map(loadFontFace));
+      renderScreen();
+      renderFonts();
+      draw();
+    } else if (was !== s.connected) renderScreen();
     renderUpdates(s.updates);
   } catch {
     setStatus("bad", "volume-keeb isn't running");

@@ -1,4 +1,4 @@
-# Builds the firmware (.uf2) and the Windows app (.exe). Pushing a tag like
+# Builds the firmware (.uf2) and the Windows app (.exe and its installer). Pushing a tag like
 # v1.0.0 also publishes them, with the case's STLs, as a GitHub release, so
 # people building a knob don't need QMK, a toolchain or Python. Run it by hand
 # from the Actions tab to just get the files as workflow artifacts.
@@ -50,7 +50,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: host/dist/volume-keeb.exe
+          path: |
+            host/dist/volume-keeb.exe
+            host/dist/volume-keeb-setup.exe
 
   release:
     if: startsWith(github.ref, 'refs/tags/')
@@ -67,8 +69,12 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          # SignPath Foundation's terms want the policy linked from the download page.
+          body: |
+            Windows: run `volume-keeb-setup.exe`. [Code signing policy](https://github.com/joaopedropio/volume-keeb#code-signing-policy-) · [Privacy](https://github.com/joaopedropio/volume-keeb#privacy)
           files: |
             dist/volume-keeb.uf2
             dist/volume-keeb.exe
+            dist/volume-keeb-setup.exe
             case/volume_case-top.stl
             case/volume_case-base.stl

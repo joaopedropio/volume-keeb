@@ -55,6 +55,10 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 //     FONT_CLEAR_CMD data[1] = slot. Empties it (a font slot goes back to the
 //                    built-in font); replies.
 //     FONT_QUERY_CMD replies FONT_INFO_CMD.
+//     STORE_READ_CMD data[1] = slot, data[2..4] = offset. Replies
+//                    STORE_DATA_CMD with the file's bytes from there, so a
+//                    host that didn't upload a slot's file can still get it
+//                    (v0.6.0 on). The host may send several before the replies.
 //   Host -> device, the screen's idle behaviour, whenever it changes and once
 //   right after the host (re)connects:
 //     SCREEN_CMD     data[1] = saver_t, data[2..3] = seconds without touching
@@ -78,6 +82,9 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 //     FONT_INFO_CMD  data[1] = STORE_SLOTS, then each slot's CRC-32 (0 =
 //                    empty) from data[2], 4 bytes apiece. Firmware before
 //                    the animations has 3 slots.
+//     STORE_DATA_CMD data[1] = slot, data[2..4] = offset, data[5] = n,
+//                    data[6..] = n bytes (FONT_DATA_CMD's layout); n is less
+//                    than a full report's worth only at the end of the file.
 //   Device -> host, the reply to VERSION_QUERY_CMD:
 //     VERSION_INFO_CMD data[1..3] = major, minor, patch (the repo's VERSION
 //                    at build time). The v0.1.0 release's firmware doesn't answer.
@@ -102,11 +109,13 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 #define SCREEN_CMD 0x6B
 #define VERSION_QUERY_CMD 0x6C
 #define SETTINGS_QUERY_CMD 0x6D
+#define STORE_READ_CMD 0x6E
 #define CTRL_CMD 0x70
 #define FONT_STATUS_CMD 0x71
 #define FONT_INFO_CMD 0x72
 #define VERSION_INFO_CMD 0x73
 #define SETTINGS_INFO_CMD 0x74
+#define STORE_DATA_CMD 0x75
 
 // Set from the repo's VERSION by rules.mk.
 #ifndef FW_VERSION_MAJOR
@@ -1975,6 +1984,13 @@ static void handle_font_cmd(uint8_t *data, uint8_t length) {
             raw_hid_send(buf, sizeof(buf));
             break;
         }
+        case STORE_READ_CMD: {
+            if (length < 5) return;
+            uint8_t buf[RAW_EPSIZE] = {STORE_DATA_CMD, slot, data[2], data[3], data[4]};
+            buf[5] = font_store_read(slot, read_le(&data[2], 3), &buf[6], RAW_EPSIZE - 6);
+            raw_hid_send(buf, sizeof(buf));
+            break;
+        }
     }
 }
 
@@ -1993,7 +2009,8 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
         case FONT_DATA_CMD:
         case FONT_END_CMD:
         case FONT_CLEAR_CMD:
-        case FONT_QUERY_CMD: {
+        case FONT_QUERY_CMD:
+        case STORE_READ_CMD: {
             if (length < 2) return;
             handle_font_cmd(data, length);
             break;

@@ -45,6 +45,11 @@ uint32_t font_store_crc(uint8_t slot) {
     return font_store_font(slot) ? 1 : 0;
 }
 
+uint8_t font_store_read(uint8_t slot, uint32_t offset, uint8_t *buf, uint8_t n) {
+    (void)slot, (void)offset, (void)buf, (void)n;
+    return 0;
+}
+
 uint8_t font_store_begin(uint8_t slot, uint32_t length, uint32_t crc) {
     (void)slot, (void)length, (void)crc;
     return FONT_ERR_SLOT;

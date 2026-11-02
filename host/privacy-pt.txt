@@ -1,0 +1,13 @@
+﻿Privacidade
+
+O volume-keeb não envia nada sobre você ou o seu computador para lugar nenhum. Ele só acessa a internet para:
+
+- perguntar ao GitHub (api.github.com), a cada poucas horas, se há uma versão nova do volume-keeb, e baixar o firmware do knob do GitHub quando você clica em "Update the knob". Desligue a verificação automática na seção Updates da página de configurações ("Check automatically"). Política de privacidade do GitHub: https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement
+
+- baixar um link que você mesmo cola na página de GIF.
+
+A página de configurações só é servida neste computador (localhost) e não pode ser acessada de outros computadores. As configurações, fontes e GIFs ficam em %APPDATA%\volume-keeb e no knob.
+
+O instalador adiciona o volume-keeb ao menu Iniciar e, se "Iniciar com o Windows" ficar marcado, aos programas que abrem quando você entra no Windows. Desinstale em Configurações > Aplicativos; isso remove os dois.
+
+Política de assinatura de código: https://github.com/joaopedropio/volume-keeb#code-signing-policy-

@@ -9,7 +9,6 @@ never approves.
 import html
 import json
 import re
-import struct
 import sys
 import threading
 import urllib.error
@@ -22,7 +21,7 @@ from urllib.parse import parse_qs, urlparse
 
 from . import qff
 from .engine import FontUploadError
-from .protocol import COLOR_FIELDS, DECORS, FONT_SLOTS, GIF_MAX_BYTES, GIF_SLOTS, MENUS, PRESETS, SAVERS
+from .protocol import COLOR_FIELDS, DECORS, FONT_SLOTS, GIF_MAX_BYTES, GIF_SLOTS, MENUS, PRESETS, SAVERS, gif_info
 from .tray import icon_png
 from .updates import UpdateError
 
@@ -67,18 +66,6 @@ def fetch_image(url, follow=True):
                     return fetch_image(urllib.parse.urljoin(final, html.unescape(m.group(1))), follow=False)
         raise ValueError("that's a web page with no image link in it; copy the image's own address")
     return data, ctype
-
-
-def gif_info(data):
-    """The header of an animation from the GIF page (keymap.c checks the rest)."""
-    if len(data) > GIF_MAX_BYTES:
-        raise ValueError(f"the animation is {len(data) // 1024} kB, over the {GIF_MAX_BYTES // 1024} kB a slot holds")
-    if len(data) < 16 or data[:4] != b"KVA1":
-        raise ValueError("not an animation from the GIF page")
-    w, h, scale, _, frames = struct.unpack_from("<HHBBH", data, 4)
-    if not (0 < w <= 428 and 0 < h <= 142 and scale and frames):
-        raise ValueError("the animation doesn't fit the screen")
-    return {"w": w, "h": h, "scale": scale, "frames": frames, "bytes": len(data), "crc": zlib.crc32(data)}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -164,6 +151,9 @@ class Handler(BaseHTTPRequestHandler):
             if method == "POST" and url.path == "/api/updates/check":
                 self.server.updates.check()
                 return self._json(self.server.updates.state())
+            if method == "PUT" and url.path == "/api/updates/auto":
+                self.config.set_check_updates(json.loads(self._body(256) or b"{}").get("on", True))
+                return self._json(self.server.updates.state())
             if method == "POST" and url.path == "/api/firmware/update":
                 self.server.updates.update_firmware()
                 return self._json({"ok": True})
@@ -214,6 +204,7 @@ class Handler(BaseHTTPRequestHandler):
         return {
             "connected": self.engine.knob.connected,
             "fonts_supported": self.engine.fonts_supported,
+            "store_rev": self.engine.store_rev,
             "gifs_supported": self.engine.gifs_supported,
             "theme": {"preset": d["preset"], "decor": d["decor"], "colors": d["colors"]},
             "screen": d["screen"],
@@ -247,6 +238,9 @@ class Handler(BaseHTTPRequestHandler):
             info = self.config.data["fonts"].get(slot)
             if not info:
                 return self._error(404, "this slot uses the built-in font")
+            if info.get("from_knob"):  # no original file to render from
+                png = qff.preview_qff(self.config.font_path(slot, "qff").read_bytes(), query.get("text") or PREVIEW_TEXT[slot])
+                return self._send(200, png, "image/png")
             font_bytes = self.config.font_path(slot, "src").read_bytes()
             fmt = fmt or info["format"]
         png = qff.preview(font_bytes, slot, fmt or "mono16", query.get("text") or PREVIEW_TEXT[slot])

@@ -14,13 +14,17 @@ import threading
 import time
 import zlib
 
+from . import qff
 from .knob import Knob
 from .protocol import (
-    CTRL_CMD, FONT_CLEAR_CMD, FONT_END_CMD, FONT_INFO_CMD, FONT_QUERY_CMD, FONT_STATUS,
-    FONT_STATUS_CMD, GIF_SLOTS, HEARTBEAT_S, STORE_INDEX, PRESETS, SETTINGS_INFO_CMD, SETTINGS_QUERY_CMD, THEME_IDS, THEME_CMD, VERSION_INFO_CMD,
-    VERSION_QUERY_CMD, app_packets, font_begin_packet, font_data_packets, palette_packet, parse_font_info, parse_settings_info,
-    screen_packet,
+    CTRL_CMD, FONT_CLEAR_CMD, FONT_DATA_CHUNK, FONT_END_CMD, FONT_INFO_CMD, FONT_MAX_BYTES, FONT_QUERY_CMD, FONT_STATUS,
+    FONT_STATUS_CMD, GIF_MAX_BYTES, GIF_SLOTS, HEARTBEAT_S, STORE_DATA_CMD, STORE_INDEX, PRESETS, SETTINGS_INFO_CMD,
+    SETTINGS_QUERY_CMD, THEME_IDS, THEME_CMD, VERSION_INFO_CMD, VERSION_QUERY_CMD, app_packets, font_begin_packet,
+    font_data_packets, gif_info, palette_packet, parse_font_info, parse_settings_info, parse_store_data, screen_packet,
+    store_read_packet,
 )
+
+READ_WINDOW = 8  # STORE_READ_CMDs in flight while reading a file back off the knob
 
 
 class FontUploadError(Exception):
@@ -42,6 +46,7 @@ class Engine:
         self.firmware_version = None  # "x.y.z", or None if it didn't answer (v0.1.0) or isn't connected
         self.setups = 0  # times the knob was (re)connected and brought up to date
         self.gifs_supported = None  # whether the firmware has the gif slots, once it answered FONT_QUERY_CMD
+        self.store_rev = 0  # goes up when a slot's file came from (or went with) the knob, so the page reloads them
         # font and gif slot -> its upload's progress
         self.jobs = {slot: {"state": "idle", "progress": 0.0, "error": ""} for slot in STORE_INDEX}
 
@@ -59,7 +64,8 @@ class Engine:
                 if not self.knob.open():
                     time.sleep(1)
                     continue
-                # The knob keeps fonts in flash but nothing else: re-push.
+                # The knob keeps its settings, fonts and gifs in flash, but
+                # not the app list: bring both sides up to date.
                 self.need_setup = True
                 self.wake()
             report = self.knob.read(0.5)
@@ -68,7 +74,7 @@ class Engine:
             if report[0] == CTRL_CMD and len(report) >= 4:
                 self.actions.put((report[1], report[2], report[3]))
                 self.wake()
-            elif report[0] in (FONT_STATUS_CMD, FONT_INFO_CMD, VERSION_INFO_CMD, SETTINGS_INFO_CMD):
+            elif report[0] in (FONT_STATUS_CMD, FONT_INFO_CMD, STORE_DATA_CMD, VERSION_INFO_CMD, SETTINGS_INFO_CMD):
                 self.replies.put(report)
 
     def _sync_loop(self):
@@ -208,9 +214,60 @@ class Engine:
         self._send(bytes([FONT_CLEAR_CMD, index]))
         self._status(index)
 
+    def _download(self, slot, crc):
+        """Reads a slot's file back off the knob (firmware v0.6.0 on)."""
+        index = STORE_INDEX[slot]
+        limit = GIF_MAX_BYTES if slot in GIF_SLOTS else FONT_MAX_BYTES
+        job = self.jobs[slot]
+        job.update(state="downloading", progress=0.0, error="")
+        data, asked = bytearray(), 0
+        self._drain_replies()
+        while True:
+            # A few requests ahead of the replies, or the round trips make it crawl.
+            while asked < limit and asked < len(data) + READ_WINDOW * FONT_DATA_CHUNK:
+                self._send(store_read_packet(index, asked))
+                asked += FONT_DATA_CHUNK
+            report = self._wait_reply(STORE_DATA_CMD, index, timeout=1.0)
+            if report is None:
+                raise FontUploadError("the knob didn't send the file (its firmware is older than v0.6.0)")
+            _, offset, part = parse_store_data(report)
+            if offset != len(data):
+                raise FontUploadError("the file came back out of order")
+            data += part
+            job["progress"] = len(data) / limit
+            if len(part) < FONT_DATA_CHUNK or len(data) >= limit:
+                break
+        if zlib.crc32(data) != crc:
+            raise FontUploadError("the file came back corrupted")
+        job.update(state="idle", progress=1.0)
+        return bytes(data)
+
+    def _take_from_knob(self, slot, crc):
+        """Makes the config hold what the knob has in `slot` (crc 0 = nothing)."""
+        gif = slot in GIF_SLOTS
+        if not crc:
+            if gif:
+                self.config.clear_gif(slot)
+                if self.config.data["screen"]["saver"] == slot:
+                    self.config.set_screen({"saver": "drive"})
+                    self.push_screen()
+            else:
+                self.config.clear_font(slot)
+            return
+        data = self._download(slot, crc)
+        if gif:
+            info = gif_info(data)
+            info["name"] = "From the knob"
+            self.config.set_gif(slot, data, info)
+        else:
+            self.config.adopt_font(slot, data, {"name": "From the knob", "format": qff.qff_format(data), "size": None,
+                                                "crc": crc, "bytes": len(data), "from_knob": True})
+
     def sync_store(self):
-        """Makes the knob's font and gif slots match the config (it may have
-        been used with another computer, or reflashed with other files)."""
+        """Brings the font and gif slots in step. The knob's files win: it
+        may have been set up on another computer, and those files live on
+        it. Only what was changed here while the knob was away goes the
+        other way."""
         with self.font_lock:
             self._drain_replies()
             if not self.knob.write(bytes([FONT_QUERY_CMD])):
@@ -229,25 +286,34 @@ class Engine:
                     continue
                 gif = slot in GIF_SLOTS
                 want = self.config.data["gifs" if gif else "fonts"].get(slot, {}).get("crc", 0)
-                if on_knob[index] == want:
-                    continue
                 try:
-                    if want:
-                        self._upload(slot, (self.config.gif_path(slot) if gif else self.config.font_path(slot, "qff")).read_bytes())
-                    else:
-                        self._clear(slot)
-                except (FontUploadError, OSError) as e:
+                    if slot in self.config.data["pending"]:
+                        if on_knob[index] != want:
+                            if want:
+                                self._upload(slot, (self.config.gif_path(slot) if gif else self.config.font_path(slot, "qff")).read_bytes())
+                            else:
+                                self._clear(slot)
+                        self.config.set_pending(slot, False)
+                    elif on_knob[index] != want:
+                        self._take_from_knob(slot, on_knob[index])
+                        self.store_rev += 1
+                except (FontUploadError, OSError, ValueError) as e:
+                    self.jobs[slot].update(state="error", error=str(e))
                     print(f"syncing the {slot} slot failed: {e}", file=sys.stderr)
 
     def upload(self, slot, data):
         """Uploads a font slot's QFF or a gif slot's animation (already saved
-        in the config) if the knob is there."""
+        in the config) if the knob is there; otherwise the next sync does."""
         with self.font_lock:
+            self.config.set_pending(slot, True)
             if self.knob.connected:
                 self._upload(slot, data)
+                self.config.set_pending(slot, False)
 
     def clear(self, slot):
         with self.font_lock:
+            self.config.set_pending(slot, True)
             self.jobs[slot].update(state="idle", progress=0.0, error="")
             if self.knob.connected:
                 self._clear(slot)
+                self.config.set_pending(slot, False)

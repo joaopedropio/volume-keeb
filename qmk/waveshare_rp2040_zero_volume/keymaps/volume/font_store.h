@@ -28,6 +28,9 @@ const uint8_t *font_store_font(uint8_t slot);
 uint32_t font_store_length(uint8_t slot);
 // CRC-32 (zlib's) of the file in `slot`, 0 when it holds none.
 uint32_t font_store_crc(uint8_t slot);
+// Copies up to `n` bytes of the file in `slot` from `offset` into `buf`;
+// returns how many (0 past its end, or when it holds none).
+uint8_t font_store_read(uint8_t slot, uint32_t offset, uint8_t *buf, uint8_t n);
 
 // An upload: begin() erases the slot, write() takes the file in order,
 // end() checks the CRC and only then marks the slot valid.

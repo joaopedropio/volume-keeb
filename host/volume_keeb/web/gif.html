@@ -845,7 +845,8 @@ loadKnob();
 setInterval(async () => {
   try {
     const s = await api('GET', '/api/state');
-    if (knob && s.connected !== knob.connected) { knob = s; renderSendButton(); }
+    if (knob && s.store_rev !== knob.store_rev) { knob = s; renderSlots(); renderSendButton(); }  // gifs read off the knob
+    else if (knob && s.connected !== knob.connected) { knob = s; renderSendButton(); }
   } catch { /* the next one */ }
 }, 3000);
 

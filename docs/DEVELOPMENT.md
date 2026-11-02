@@ -178,6 +178,7 @@ The same store has three more slots, 256 kB each from `0x130000` (`ANIM_STORE_*`
 - The host's GIF page (`host/volume_keeb/web/gif.html`, at `/gif`) does all the image work in the browser: it decodes a GIF itself (`gif.js`, compositing frames the way browsers do) and anything else with the browser's `ImageDecoder` (a still image is a one-frame animation, which the firmware draws once), optionally turned or mirrored (`Pixel.transform()`, which starts the grid detection and crop over), finds the size of one "8-bit" pixel and the grid's offset (`pixel.js`: the biggest square grid that holds at least 75% of the color edges, searched in steps that shrink with the image so a non-integer upscale like 3.5× doesn't drift), takes one color per cell (the most common shade inside it, ignoring the cell's borders), optionally merges shades within a distance of a more common color (`mergeSimilar()`, for JPEG and lossy-GIF noise), then crops the art pixels the screen shows at an integer scale (each art pixel `scale` × `scale` panel pixels). Art bigger than the screen can be shrunk instead (scales under 1×, down to the one that fits it whole; `Pixel.compose()` averages or drops pixels): the page then sends the screen's own pixels, at scale 1.
 - `kva.js` turns that into a "KVA1" file: an RGB565 palette of up to 256 colors and, per frame, runs of one color, literal pixels, or pixels left as the previous frame had them; repeated frames are merged into a longer delay. The format is described above `keymap.c`'s `anim_parse()`. `web.py` only checks the header; the firmware checks the whole file when the upload ends (and again at boot) and rejects one that doesn't parse, so drawing it needs no checks.
 - `render_anim()` draws each frame's changed art pixels into `lcd_fb` and sends only the rows they touched. Housekeeping checks every `ANIM_TICK_MS` whether the next frame is due, so the GIF's own delays hold (20 ms at least, as browsers do).
+- Any host the knob is plugged into reads the slots back (see [Raw HID protocol](#raw-hid-protocol)), so the GIF page and the screensaver thumbnails show them on a computer that never uploaded them.
 - An empty slot's screensaver shows the drive (`saver_shown()`), the knob's settings skip empty slots, and removing the screensaver's GIF from the host sets it back to the drive.
 - `tools/ui_sim` plays them too: `UI_SIM_FONTS=<dir>` with `slot3.kva`–`slot5.kva` (the host keeps a copy of each as `gif-gifN.kva` in its config folder).
 
@@ -215,13 +216,13 @@ UI_SIM_FONTS=/tmp/fonts python3 ../tools/ui_sim/run.py /tmp/sim
 
 ### Building the Windows app
 
-`volume-keeb.exe` is a one-file PyInstaller build. The [release workflow](#releases) makes it; to build it on a Windows machine, with Python 3.10+ on `PATH`, run from `host\`:
+`volume-keeb.exe` is a one-file PyInstaller build, and `volume-keeb-setup.exe` its installer (`host/volume-keeb.iss`, [Inno Setup 6](https://jrsoftware.org/isinfo.php)): per user, no admin prompt, into `%LOCALAPPDATA%\Programs\volume-keeb`, with a Start menu entry, an optional desktop icon and **Start with Windows** ticked (the same `HKCU\...\Run` value as the tray's checkbox). Running a newer installer over it closes the running app and replaces it; uninstalling (Settings → Apps) removes the Run value too and keeps `%APPDATA%\volume-keeb`. The [release workflow](#releases) makes both; to build them on a Windows machine, with Python 3.10+ on `PATH` and Inno Setup 6 installed (the script installs it with Chocolatey if it's missing), run from `host\`:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File build_windows.ps1
 ```
 
-It lands in `host\dist\volume-keeb.exe`. To run from source instead: `pip install -r requirements.txt`, then `python volume_sync.py`.
+They land in `host\dist\`. Both carry the product name and the version from `VERSION` (a PyInstaller version file written by the script, and the `.iss`'s `VersionInfo*`), which SignPath's metadata restrictions check. The installer shows `privacy-en.txt`/`privacy-pt.txt` before installing (SignPath Foundation's terms ask for the privacy notice during installation; keep them in step with the README's Privacy section). Neither is code-signed yet, so SmartScreen warns on first run (see the README's [Windows step](../README.md#windows)); signing would go in `build_windows.ps1`, on both files, before the release uploads them. To run from source instead: `pip install -r requirements.txt`, then `python volume_sync.py`.
 
 ### Raw HID protocol
 
@@ -241,11 +242,13 @@ It lands in `host\dist\volume-keeb.exe`. To run from source instead: `pip instal
 | host → knob | `0x6A` | Ask what the slots hold |
 | host → knob | `0x6C` | Ask the firmware's version |
 | host → knob | `0x6D` | Ask the knob's settings (on connect, before sending the page's) |
+| host → knob | `0x6E` | Read a store slot back: slot and offset; the knob answers `0x75`. The host keeps 8 in flight, so a 256 kB gif takes about 10 s (v0.6.0 on) |
 | host → knob | `0x6B` | Screen: screensaver kind, seconds before it starts, seconds before the screen turns off (0 = never), a flag to start the screensaver now (the page's **Show on the knob**), and the menu's layout (carousel, list, mixer; older hosts send 0, the carousel) |
 | knob → host | `0x70` | Action for one app id: `0` set volume, `1` toggle mute, `2` play/pause |
 | knob → host | `0x71` | Result of an upload begin/end or a clear |
 | knob → host | `0x72` | The slot count and each slot's CRC (0 = empty); firmware before the gif screensavers has 3 slots |
 | knob → host | `0x73` | Firmware version: major, minor, patch. The v0.1.0 firmware doesn't answer `0x6C`, so silence means v0.1.0 |
+| knob → host | `0x75` | Up to 26 bytes of a slot's file from an offset (`0x67`'s layout); fewer means the file ends there |
 | knob → host | `0x74` | The knob's settings: a changed-on-the-knob flag, the palette and decor (as `0x65`), screensaver kind and its two times and the menu's layout (as `0x6B`). Firmware before v0.4.0 doesn't answer, and the host pushes its own |
 
 ### Adding a theme
@@ -256,7 +259,7 @@ It lands in `host\dist\volume-keeb.exe`. To run from source instead: `pip instal
 
 A new decor (`decor_t`) needs more: its branches in `keymap.c`'s drawing (`draw_box()` at least), its name in `DECORS` in `protocol.py`, and the same drawing in `web/index.html`'s preview (`box()`, `drawApp()`, `drawMenu()`) and `DECOR_LABEL`. `DECOR_DIAL` (`studio`), `DECOR_VU` (`hifi`) and `DECOR_MIXER` (`console`) change the App screen's layout (`side_layout()`): the volume on the left (`draw_dial()`, `draw_vu()`, `draw_fader()`, from `draw_bar()`), and a panel with the rest on the right (`draw_panel()`, from `draw_header()`), its title row placed by `ticker_x()`/`ticker_y()`/`ticker_w()`.
 
-The firmware doesn't store the look; the host sends it on start, on every reconnect and on every change on the page. Fonts are the exception: they live in the knob's flash, and the host only re-sends one whose CRC differs from what it has saved.
+The host sends the look on start, on every reconnect and on every change on the page (after taking what was changed on the knob's own settings screen, `0x6D`). Fonts and gifs work the other way round: they live in the knob's flash, and the knob's copy wins. On connect, `Engine.sync_store()` compares each slot's CRC (`0x6A`) with the config's; a slot that differs is read back off the knob (`0x6E`) into the config, or dropped from it if the knob's is empty, so a knob set up on another computer brings its files along. Only a slot changed on the page while the knob was away, or whose upload failed (the config's `pending` list), goes from the host to the knob. A font read back has only its QFF, not the font file it came from, so the page previews it from the QFF (`qff.preview_qff()`) and can't convert it to another bit depth. Firmware before v0.6.0 doesn't answer `0x6E`: the host then leaves that slot alone on both sides.
 
 ## Case
 
@@ -304,7 +307,7 @@ The encoder is chosen with `encoder` in the `.scad`. Only `"hw040"` is measured 
 
 ## Releases
 
-`.github/workflows/release.yml` builds `volume-keeb.uf2` (in QMK's `qmk_cli` container, against the `qmk_firmware` tag in `QMK_REF`) and `volume-keeb.exe` (on a Windows runner, with `build_windows.ps1`). Pushing a `v*` tag also publishes a GitHub release with both files and the case's two STLs.
+`.github/workflows/release.yml` builds `volume-keeb.uf2` (in QMK's `qmk_cli` container, against the `qmk_firmware` tag in `QMK_REF`) and `volume-keeb.exe` + `volume-keeb-setup.exe` (on a Windows runner, with `build_windows.ps1`). Pushing a `v*` tag also publishes a GitHub release with those files and the case's two STLs.
 
 The version lives in `VERSION` at the repo root. The firmware build reads it (the keymap's `rules.mk` turns it into `FW_VERSION_*`, which the knob reports), so does the host app (`version.py`; `build_windows.ps1` bundles the file), and the workflow refuses a tag that doesn't match it. To release, bump it, commit, then tag:
 
