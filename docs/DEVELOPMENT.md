@@ -333,12 +333,13 @@ Done so far, against [their terms](https://signpath.org/terms):
 - Privacy: the automatic update check can be turned off on the settings page ("Check automatically", config `check_updates`), and the installer shows `host/privacy-en.txt`/`privacy-pt.txt` before installing. The terms want both: the notice during installation and a way to disable what talks to the network.
 - Metadata: both `.exe` files carry product name `volume-keeb` and the version from `VERSION` (see [Building the Windows app](#building-the-windows-app)).
 
+- MFA is on for the GitHub account (turn it on for SignPath too once the account exists, and for anyone who joins the team).
+- v0.6.0 is the first release with `volume-keeb-setup.exe` in it (the terms want the project already released in the form to be signed).
+
 Still to do, in order:
 
-1. MFA on GitHub (and on SignPath once the account exists), for everyone on the team.
-2. Release v0.6.0 first: the terms want the project already released in the form to be signed, and `volume-keeb-setup.exe` hasn't been in a release yet (nor has the Windows job built it).
-3. Apply at https://signpath.org/apply.
-4. Once approved: add the organization id and a `SIGNPATH_API_TOKEN` secret, split `build_windows.ps1` into an `.exe` step and an installer step, and sign twice in `release.yml` with `signpath/github-action-submit-signing-request@v1` (`release-signing` policy, approved by hand on SignPath for each release): sign `volume-keeb.exe`, build the installer around the signed one, then sign `volume-keeb-setup.exe` (an Inno Setup payload can't be signed from outside). Then delete the README's "Pending" note.
+1. Apply at https://signpath.org/apply.
+2. Once approved: add the organization id and a `SIGNPATH_API_TOKEN` secret, split `build_windows.ps1` into an `.exe` step and an installer step, and sign twice in `release.yml` with `signpath/github-action-submit-signing-request@v1` (`release-signing` policy, approved by hand on SignPath for each release): sign `volume-keeb.exe`, build the installer around the signed one, then sign `volume-keeb-setup.exe` (an Inno Setup payload can't be signed from outside). Then delete the README's "Pending" note.
 
 To stay compliant meanwhile: anything new that talks to the network goes into the README's Privacy section and both `privacy-*.txt`, with a way to turn it off.
 
