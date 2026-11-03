@@ -44,7 +44,8 @@ const Kva = (() => {
   }
 
   // frames: opaque RGBA buffers of w*h; delays in ms; scale: the screen
-  // pixels per art pixel. -> {bytes, frames, colors}
+  // pixels per art pixel. -> {bytes, frames, colors, sizes}: sizes[f] is
+  // what frames[f] takes in the file (0 for one merged into the one before).
   function encode(w, h, scale, frames, delays) {
     const reduced = frames.map(d => {
       const o = new Uint8ClampedArray(d.length);
@@ -60,12 +61,13 @@ const Kva = (() => {
       return a;
     });
     // A frame that repeats the one before just makes that one last longer.
-    const kept = [], kd = [];
+    const kept = [], kd = [], from = [];
     idx.forEach((a, f) => {
       const last = kept[kept.length - 1];
       if (last && a.every((v, i) => v === last[i])) kd[kd.length - 1] += delays[f];
-      else { kept.push(a); kd.push(delays[f]); }
+      else { kept.push(a); kd.push(delays[f]); from.push(f); }
     });
+    const sizes = new Array(frames.length).fill(0);
     const out = [...'KVA1'].map(c => c.charCodeAt(0));
     const u16 = v => out.push(v & 255, (v >> 8) & 255);
     u16(w); u16(h);
@@ -84,8 +86,9 @@ const Kva = (() => {
       const n = data.length;
       out.push(n & 255, (n >> 8) & 255, (n >> 16) & 255, n >>> 24);
       for (const b of data) out.push(b);
+      sizes[from[f]] = 6 + n;
     });
-    return { bytes: new Uint8Array(out), frames: kept.length, colors: pal.colors.length };
+    return { bytes: new Uint8Array(out), frames: kept.length, colors: pal.colors.length, sizes };
   }
 
   // -> {w, h, scale, frames: [{rgba, delay}]}, the art pixels as the knob has them.

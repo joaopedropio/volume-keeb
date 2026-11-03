@@ -22,6 +22,7 @@
   section.off { opacity: .45; pointer-events: none; }
   h2 { margin: 0 0 4px; font-size: 15px; }
   h2 b { color: var(--accent); margin-right: 6px; }
+  h3.sub { margin: 14px 0 8px; font-size: 13px; color: var(--text); }
   .lead { color: var(--dim); margin: 0 0 12px; font-size: 13px; }
   .row { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin-bottom: 10px; }
   label { display: inline-flex; gap: 8px; align-items: center; color: var(--dim); }
@@ -35,6 +36,7 @@
   input[type=color] { width: 36px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; }
   button { background: #2a2f38; border: 1px solid #3a404b; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
   button:hover { background: #333944; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
   button.go { background: var(--accent); color: #0d1a10; border-color: var(--accent); font-weight: 600; }
   .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
   .seg button { border: 0; border-radius: 0; background: var(--field); }
@@ -59,6 +61,16 @@
   .slot small { color: var(--dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bar { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
   .bar div { height: 100%; width: 0; background: var(--accent); }
+  .film { display: flex; gap: 6px; overflow-x: auto; padding: 4px 2px 8px; margin-bottom: 8px; }
+  .film button { flex: none; padding: 3px; display: grid; gap: 2px; background: var(--field); border-color: var(--line); font-size: 11px; color: var(--dim); text-align: left; }
+  .film button.hot { border-color: #8a6d3b; }
+  .film button.off { opacity: .35; }
+  .film button.off canvas { filter: grayscale(1); }
+  .film button.cur { box-shadow: 0 0 0 1px var(--accent); }
+  .film canvas { width: 107px; height: 36px; image-rendering: pixelated; background: #000; display: block; }
+  .fill { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; flex: 1 1 160px; max-width: 320px; }
+  .fill div { height: 100%; background: var(--accent); }
+  .fill.over div { background: var(--err); }
   #drop { position: fixed; inset: 0; background: rgba(123, 216, 143, .12); border: 3px dashed var(--accent); display: none; z-index: 9; }
   body.dragging #drop { display: block; }
 </style>
@@ -166,9 +178,24 @@
     <div class="slots" id="slots"></div>
     <div class="row">
       <label>Name <input type="text" id="gifName" maxlength="80" style="min-width: 160px; flex: 0 1 240px"></label>
-      <label class="anim">Frames
-        <select id="every"><option value="1">all</option><option value="2">every 2nd</option><option value="3">every 3rd</option><option value="4">every 4th</option></select>
+    </div>
+    <h3 class="sub">Make it smaller</h3>
+    <div class="row">
+      <label class="anim">From frame <input type="number" id="first" min="1" value="1"></label>
+      <label class="anim">to <input type="number" id="last" min="1" value="1"></label>
+      <label class="anim">Keep
+        <select id="every"><option value="1">every frame</option><option value="2">every 2nd</option><option value="3">every 3rd</option><option value="4">every 4th</option><option value="5">every 5th</option><option value="6">every 6th</option><option value="8">every 8th</option></select>
       </label>
+      <label>Colors
+        <select id="colors2"></select>
+      </label>
+      <button id="fitSize" title="Drops every 2nd, 3rd… frame, then fewer colors, until it fits the slot">Make it fit</button>
+      <button id="resetEdit" class="anim">All frames back</button>
+    </div>
+    <p class="info anim" style="margin: 0 0 6px">Click a frame to drop it (its time goes to the frame before, so the speed stays); the kB under each is what it takes. The ones in brown take the most: dropping them saves the most.</p>
+    <div class="film anim" id="film"></div>
+    <div class="row">
+      <div class="fill" id="fillBar"><div></div></div>
       <span class="info" id="sizeInfo"></span>
     </div>
     <div class="row">
@@ -204,6 +231,7 @@ const S = {
   view: 'result', flip: false, frame: 0,
   scale: 1, x: 0, y: 0, bg: [0, 0, 0], smooth: true,
   composed: [],
+  first: 0, last: 0, drop: new Set(),  // the frames the knob gets (see plan())
 };
 
 // ---------- import ----------
@@ -287,6 +315,7 @@ async function loadBytes(bytes, type, name) {
   S.src = src;
   S.name = name;
   S.frame = 0;
+  resetEdit();
   $('frame').max = src.frames.length - 1;
   $('frame').value = 0;
   for (const el of document.querySelectorAll('.anim')) el.hidden = src.frames.length < 2;
@@ -458,7 +487,14 @@ $('zoom').addEventListener('change', drawGrid);
 $('frame').addEventListener('input', e => { S.frame = +e.target.value; drawGrid(); drawCrop(); });
 $('detect').addEventListener('click', () => { autoDetect(); rebuild(false); });
 $('mode').addEventListener('change', e => { S.mode = e.target.value; rebuild(false); });
-$('colors').addEventListener('change', e => { S.colors = +e.target.value; rebuild(false); });
+function setColors(v) {
+  S.colors = +v;
+  $('colors').value = $('colors2').value = S.colors;
+  rebuild(false);
+}
+$('colors2').innerHTML = $('colors').innerHTML;
+$('colors').addEventListener('change', e => setColors(e.target.value));
+$('colors2').addEventListener('change', e => setColors(e.target.value));
 $('merge').addEventListener('change', e => { S.merge = +e.target.value; rebuild(false); });
 
 // ---------- screen crop ----------
@@ -618,17 +654,19 @@ let pf = 0, pNext = 0;
 function tick(t) {
   requestAnimationFrame(tick);
   if (!S.art) return;
-  const n = S.art.frames.length;
+  const p = plan(), n = p.length;
   if (pf >= n) pf = 0;
+  let f;
   if ($('play').checked && n > 1) {
     if (t >= pNext) {
       pf = (pf + 1) % n;
-      pNext = t + S.art.frames[pf].delay;
+      pNext = t + p[pf].delay;
     }
+    f = p[pf].i;
   } else {
-    pf = S.frame;
+    f = S.frame;
   }
-  pctx.putImageData(new ImageData(screenFrame(pf), SCREEN_W, SCREEN_H), 0, 0);
+  pctx.putImageData(new ImageData(screenFrame(f), SCREEN_W, SCREEN_H), 0, 0);
 }
 requestAnimationFrame(tick);
 
@@ -652,7 +690,7 @@ function saveGif(w, h, frames, name) {
   status('saveStatus', 'Encoding…');
   setTimeout(() => {
     try {
-      const bytes = Gif.encode(w, h, frames, S.art.frames.map(f => f.delay));
+      const bytes = Gif.encode(w, h, frames, plan().map(k => k.delay));
       download(bytes, name);
       status('saveStatus', `Saved ${name}: ${w} × ${h}, ${frames.length} frame${frames.length > 1 ? 's' : ''}, ${(bytes.length / 1024).toFixed(1)} kB.`);
     } catch (e) {
@@ -662,12 +700,12 @@ function saveGif(w, h, frames, name) {
 }
 
 $('saveScreen').addEventListener('click', () => {
-  const frames = S.art.frames.map((_, f) => screenFrame(f));
+  const frames = plan().map(k => screenFrame(k.i));
   saveGif(SCREEN_W, SCREEN_H, frames, `${S.name}_428x142.gif`);
 });
 $('saveArt').addEventListener('click', () => {
   const w = Math.ceil(cropW()), h = Math.ceil(cropH());
-  const frames = S.art.frames.map(f => Pixel.compose(S.art, f.rgba, S.x, S.y, 1, w, h, S.bg));
+  const frames = plan().map(k => Pixel.compose(S.art, S.art.frames[k.i].rgba, S.x, S.y, 1, w, h, S.bg));
   saveGif(w, h, frames, `${S.name}_${w}x${h}_x${S.scale >= 1 ? S.scale : 1}.gif`);
 });
 
@@ -685,40 +723,166 @@ async function api(method, path, body) {
   return data;
 }
 
-// The art pixels the screen shows (shrunk, the screen's pixels), one GIF
-// frame in every `every`.
+// The frames the knob gets, from the edits in "Make it smaller": those from
+// S.first to S.last, one in every `every`, minus the ones clicked off. A
+// left-out frame's time goes to the kept one before it, so the speed stays
+// (those cut off the start go). -> [{i, delay}], never empty.
+function plan() {
+  const fr = S.art.frames, every = +$('every').value, out = [];
+  const last = Math.min(S.last, fr.length - 1);
+  for (let i = S.first; i <= last; i++) {
+    if ((i - S.first) % every === 0 && !S.drop.has(i)) out.push({ i, delay: fr[i].delay });
+    else if (out.length) out[out.length - 1].delay += fr[i].delay;
+  }
+  if (!out.length) out.push({ i: Math.min(S.first, fr.length - 1), delay: fr[Math.min(S.first, fr.length - 1)].delay });
+  return out;
+}
+
+function resetEdit() {
+  const n = S.src ? S.src.frames.length : 1;
+  S.first = 0;
+  S.last = n - 1;
+  S.drop = new Set();
+  $('every').value = 1;
+  $('first').max = $('last').max = n;
+  $('first').value = 1;
+  $('last').value = n;
+}
+
+// The art pixels the screen shows (shrunk, the screen's pixels) of the
+// frames plan() keeps.
 function encodeKva() {
   const shrunk = S.scale < 1;
   const w = shrunk ? SCREEN_W : Math.min(SCREEN_W, Math.ceil(cropW())), h = shrunk ? SCREEN_H : Math.min(SCREEN_H, Math.ceil(cropH()));
-  const every = +$('every').value;
-  const frames = [], delays = [];
-  S.art.frames.forEach((f, i) => {
-    if (i % every === 0) {
-      frames.push(shrunk ? screenFrame(i) : Pixel.compose(S.art, f.rgba, S.x, S.y, 1, w, h, S.bg));
-      delays.push(f.delay);
-    } else {
-      delays[delays.length - 1] += f.delay;
-    }
-  });
-  return Kva.encode(w, h, shrunk ? 1 : S.scale, frames, delays);
+  const p = plan();
+  const frames = p.map(k => shrunk ? screenFrame(k.i) : Pixel.compose(S.art, S.art.frames[k.i].rgba, S.x, S.y, 1, w, h, S.bg));
+  const out = Kva.encode(w, h, shrunk ? 1 : S.scale, frames, p.map(k => k.delay));
+  out.cost = new Map(p.map((k, j) => [k.i, out.sizes[j]]));
+  return out;
 }
+
+const kb = n => (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' kB';
 
 let measureTimer = 0;
 function measureSoon() {
   clearTimeout(measureTimer);
   kva = null;
-  measureTimer = setTimeout(() => {
-    if (!S.art) return;
-    kva = encodeKva();
-    const max = knob ? knob.gif_max_bytes : Infinity;
-    const kb = n => (n / 1024).toFixed(0) + ' kB';
-    const tooBig = kva.bytes.length > max;
-    $('sizeInfo').innerHTML = `<b>${kb(kva.bytes.length)}</b> of the ${kb(max)} a slot holds · ` +
-      (kva.frames > 1 ? `${kva.frames} frames, ` : 'still, ') + `${kva.colors} colors` +
-      (tooBig ? ' · <span style="color: var(--err)">too big: use fewer frames, a bigger scale or fewer colors</span>' : '');
-    renderSendButton();
-  }, 250);
+  measureTimer = setTimeout(measureNow, 250);
 }
+
+function measureNow() {
+  if (!S.art) return;
+  kva = encodeKva();
+  const max = knob ? knob.gif_max_bytes : Infinity;
+  const size = kva.bytes.length, tooBig = size > max;
+  $('sizeInfo').innerHTML = `<b>${kb(size)}</b> of the ${kb(max)} a slot holds · ` +
+    (kva.frames > 1 ? `${kva.frames} of ${S.art.frames.length} frames, ` : 'still, ') + `${kva.colors} colors` +
+    (tooBig ? ` · <span style="color: var(--err)">${kb(size - max)} too big: drop frames, use fewer colors or a bigger scale, or press Make it fit</span>` : '');
+  $('fillBar').classList.toggle('over', tooBig);
+  $('fillBar').firstChild.style.width = isFinite(max) ? `${Math.min(100, size / max * 100)}%` : '0';
+  drawFilm();
+  renderSendButton();
+}
+
+// ---------- make it smaller ----------
+
+function thumbCanvas(i) {
+  const c = document.createElement('canvas');
+  c.width = SCREEN_W / 2; c.height = SCREEN_H / 2;
+  const t = thumbCanvas.big || (thumbCanvas.big = document.createElement('canvas'));
+  t.width = SCREEN_W; t.height = SCREEN_H;
+  t.getContext('2d').putImageData(new ImageData(screenFrame(i), SCREEN_W, SCREEN_H), 0, 0);
+  const x = c.getContext('2d');
+  x.imageSmoothingEnabled = false;
+  x.drawImage(t, 0, 0, c.width, c.height);
+  return c;
+}
+
+function drawFilm() {
+  const film = $('film'), n = S.art.frames.length;
+  if (n < 2) { film.innerHTML = ''; return; }
+  // Thumbnails only change with the picture, not with the edits.
+  const key = S.composed;
+  if (film.key !== key || film.children.length !== n) {
+    film.key = key;
+    film.innerHTML = '';
+    for (let i = 0; i < n; i++) {
+      const b = document.createElement('button');
+      b.dataset.i = i;
+      const label = document.createElement('span');
+      b.append(thumbCanvas(i), label);
+      film.append(b);
+    }
+  }
+  const costs = [...kva.cost.values()].filter(v => v > 0).sort((a, b) => b - a);
+  const hot = costs.length > 4 ? costs[Math.floor(costs.length / 5)] : Infinity;  // the top fifth
+  const p = new Set(plan().map(k => k.i));
+  for (const b of film.children) {
+    const i = +b.dataset.i, cost = kva.cost.get(i);
+    const kept = p.has(i);
+    b.classList.toggle('off', !kept);
+    b.classList.toggle('hot', kept && cost >= hot);
+    b.classList.toggle('cur', i === S.frame);
+    b.title = S.drop.has(i) ? 'Dropped: click to put it back' : kept ? 'Click to drop this frame' : 'Left out by the range or "Keep"';
+    b.lastChild.textContent = `#${i + 1} · ` + (S.drop.has(i) ? 'dropped' : !kept ? 'left out' : cost ? kb(cost) : 'no change');
+  }
+}
+
+$('film').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  const i = +b.dataset.i;
+  if (S.drop.has(i)) S.drop.delete(i);
+  else if (plan().some(k => k.i === i)) S.drop.add(i);
+  else return;
+  S.frame = i;
+  $('frame').value = i;
+  drawGrid();
+  measureSoon();
+});
+
+function setRange() {
+  const n = S.art.frames.length;
+  let a = Math.round(+$('first').value) || 1, b = Math.round(+$('last').value) || n;
+  a = Math.max(1, Math.min(n, a));
+  b = Math.max(a, Math.min(n, b));
+  $('first').value = a;
+  $('last').value = b;
+  S.first = a - 1;
+  S.last = b - 1;
+  measureSoon();
+}
+$('first').addEventListener('change', setRange);
+$('last').addEventListener('change', setRange);
+$('resetEdit').addEventListener('click', () => { resetEdit(); measureSoon(); });
+
+// Tries the gentlest edits first: one frame in 2, 3, 4, 6, 8, then fewer
+// colors with each of those again. Frames clicked off stay off.
+$('fitSize').addEventListener('click', async () => {
+  if (!S.art || !knob) return;
+  const max = knob.gif_max_bytes, btn = $('fitSize');
+  const fits = () => { kva = encodeKva(); return kva.bytes.length <= max; };
+  const pause = () => new Promise(r => setTimeout(r, 0));
+  btn.disabled = true;
+  try {
+    clearTimeout(measureTimer);
+    const everies = S.art.frames.length > 1 ? [1, 2, 3, 4, 6, 8].filter(v => v >= +$('every').value) : [1];
+    const colors = [S.colors, 64, 32, 16, 8].filter((v, j) => j === 0 || S.colors === 0 || v < S.colors);
+    for (const c of colors) {
+      if (c !== S.colors) { S.colors = c; $('colors').value = $('colors2').value = c; rebuild(false); clearTimeout(measureTimer); }
+      for (const e of everies) {
+        $('every').value = e;
+        status('sendStatus', `Trying ${$('every').selectedOptions[0].text}, ${c ? c + ' colors' : 'all colors'}…`);
+        await pause();
+        if (fits()) { status('sendStatus', `It fits now: ${kb(kva.bytes.length)}.`); return; }
+      }
+    }
+    status('sendStatus', 'Still too big: drop more frames by hand, or pick a bigger scale in step 3.', true);
+  } finally {
+    btn.disabled = false;
+    measureNow();
+  }
+});
 
 function renderSendButton() {
   const n = slot.slice(3);
