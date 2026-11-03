@@ -200,7 +200,9 @@ class Handler(BaseHTTPRequestHandler):
                 "custom": d["fonts"].get(slot),
                 "job": self.engine.jobs[slot],
             }
-        gifs = {slot: {"custom": d["gifs"].get(slot), "job": self.engine.jobs[slot]} for slot in GIF_SLOTS}
+        # Only the gif slots the knob has (gif4-6 need firmware v0.7.0).
+        gif_slots = self.engine.gif_slots()
+        gifs = {slot: {"custom": d["gifs"].get(slot), "job": self.engine.jobs[slot]} for slot in gif_slots}
         return {
             "connected": self.engine.knob.connected,
             "fonts_supported": self.engine.fonts_supported,
@@ -209,7 +211,7 @@ class Handler(BaseHTTPRequestHandler):
             "theme": {"preset": d["preset"], "decor": d["decor"], "colors": d["colors"]},
             "screen": d["screen"],
             "updates": self.server.updates.state(),
-            "savers": SAVERS,
+            "savers": [s for s in SAVERS if s not in GIF_SLOTS or s in gif_slots],
             "menus": MENUS,
             "presets": PRESETS,
             "decors": DECORS,
@@ -217,6 +219,7 @@ class Handler(BaseHTTPRequestHandler):
             "fonts": fonts,
             "gifs": gifs,
             "gif_max_bytes": GIF_MAX_BYTES,
+            "gif_slots": gif_slots,
             "formats": {k: v["label"] for k, v in qff.FORMATS.items()},
             "preview_text": PREVIEW_TEXT,
         }

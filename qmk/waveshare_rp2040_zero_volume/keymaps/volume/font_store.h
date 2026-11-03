@@ -9,7 +9,7 @@
 // FONT_SLOTS slots, then a screensaver animation (keymap.c's ANIM format)
 // in each of the ANIM_SLOTS after them.
 #define FONT_SLOTS 3
-#define ANIM_SLOTS 3
+#define ANIM_SLOTS 6
 #define ANIM_SLOT0 FONT_SLOTS
 #define STORE_SLOTS (FONT_SLOTS + ANIM_SLOTS)
 

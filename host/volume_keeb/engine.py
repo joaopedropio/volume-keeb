@@ -46,6 +46,7 @@ class Engine:
         self.firmware_version = None  # "x.y.z", or None if it didn't answer (v0.1.0) or isn't connected
         self.setups = 0  # times the knob was (re)connected and brought up to date
         self.gifs_supported = None  # whether the firmware has the gif slots, once it answered FONT_QUERY_CMD
+        self.store_slots = None  # how many slots the knob has, once it answered FONT_QUERY_CMD
         self.store_rev = 0  # goes up when a slot's file came from (or went with) the knob, so the page reloads them
         # font and gif slot -> its upload's progress
         self.jobs = {slot: {"state": "idle", "progress": 0.0, "error": ""} for slot in STORE_INDEX}
@@ -148,6 +149,16 @@ class Engine:
     def push_screen(self, preview=False):
         s = self.config.data["screen"]
         self.knob.write(screen_packet(s["saver"], s["saver_after"], s["off_after"], s["menu"], preview))
+
+    def _firmware_at_least(self, *version):
+        try:
+            return tuple(int(n) for n in (self.firmware_version or "").split(".")) >= version
+        except ValueError:
+            return False
+
+    def gif_slots(self):
+        """The gif slots the knob has (all of them while that's unknown)."""
+        return [s for s, v in GIF_SLOTS.items() if self.store_slots is None or v["index"] < self.store_slots]
 
     def query_version(self):
         with self.font_lock:  # shares self.replies with the font commands
@@ -270,7 +281,7 @@ class Engine:
         other way."""
         with self.font_lock:
             self._drain_replies()
-            if not self.knob.write(bytes([FONT_QUERY_CMD])):
+            if not self.knob.write(bytes([FONT_QUERY_CMD, 0])):
                 return
             report = self._wait_reply(FONT_INFO_CMD, timeout=1.0)
             self.fonts_supported = report is not None
@@ -278,7 +289,14 @@ class Engine:
                 print("the knob's firmware doesn't take fonts; reflash it to use custom fonts", file=sys.stderr)
                 return
             on_knob = parse_font_info(report)
-            self.gifs_supported = len(on_knob) > max(v["index"] for v in GIF_SLOTS.values())
+            # A report holds 7 slots; v0.7.0 on has more and reports from the
+            # slot asked for (older firmware would answer from 0 again).
+            if len(on_knob) == 7 and self._firmware_at_least(0, 7, 0) and self.knob.write(bytes([FONT_QUERY_CMD, 7])):
+                report = self._wait_reply(FONT_INFO_CMD, timeout=1.0)
+                if report is not None:
+                    on_knob += parse_font_info(report)
+            self.store_slots = len(on_knob)
+            self.gifs_supported = len(on_knob) > min(v["index"] for v in GIF_SLOTS.values())
             if not self.gifs_supported:
                 print("the knob's firmware has no gif screensavers; update it to use them", file=sys.stderr)
             for slot, index in STORE_INDEX.items():

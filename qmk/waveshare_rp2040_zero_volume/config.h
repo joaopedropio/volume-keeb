@@ -62,13 +62,18 @@
 #define EECONFIG_USER_DATA_SIZE 32
 #define EECONFIG_USER_DATA_VERSION 1
 
-// Fonts uploaded from the host (keymaps/volume/font_store.c): FONT_SLOTS
-// slots of FONT_STORE_SLOT_SIZE each, from 1 MB into the 2 MB flash -- far
-// past the firmware (under 100 kB) and clear of the wear-leveled EEPROM in
-// the last sectors.
+// Files uploaded from the host (keymaps/volume/font_store.c). The firmware
+// gets the flash's first FIRMWARE_MAX bytes (it's under 100 kB; the build
+// fails past this, see keymaps/volume/rules.mk) and the wear-leveled EEPROM
+// the last 8 kB; the slots take the rest:
+//   0x030000  gif4-6  ANIM_STORE_SLOT_SIZE each, from ANIM_STORE_LOW_OFFSET
+//   0x100000  fonts   FONT_SLOTS x FONT_STORE_SLOT_SIZE
+//   0x130000  gif1-3  from ANIM_STORE_OFFSET, up to 0x1F0000
+// The fonts and gif1-3 are where they've been since the gifs came in, so
+// updating keeps them; gif4-6 came with v0.7.0.
+#define FIRMWARE_MAX 0x30000
 #define FONT_STORE_OFFSET 0x100000
 #define FONT_STORE_SLOT_SIZE 0x10000
-// And right after them, the screensaver animations made from GIFs (ANIM_SLOTS
-// in font_store.h), up to 0x1F0000: the EEPROM takes the last 8 kB.
 #define ANIM_STORE_OFFSET 0x130000
+#define ANIM_STORE_LOW_OFFSET FIRMWARE_MAX
 #define ANIM_STORE_SLOT_SIZE 0x40000

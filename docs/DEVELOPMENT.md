@@ -166,7 +166,7 @@ qmk compile -kb handwired/onekey/waveshare_rp2040_zero_volume -km diag
 
 The settings page can replace each of the three fonts. The host converts the font to QFF (`host/volume_keeb/qff.py`, a from-scratch version of QMK's font tools, so the host doesn't need the QMK CLI) and uploads it into a slot of `keymaps/volume/font_store.c`:
 
-- The slots are 64 kB each, from 1 MB into the 2 MB flash (`FONT_STORE_*` in `config.h`): far past the firmware and clear of the wear-leveled EEPROM at the end. A UF2 only rewrites the blocks it carries, so re-flashing keeps them.
+- The slots are 64 kB each, from 1 MB into the 2 MB flash (`FONT_STORE_*` in `config.h`, which draws the whole layout): past the firmware's 192 kB (`FIRMWARE_MAX`; the keymap's `rules.mk` fails the build past it) and clear of the wear-leveled EEPROM at the end. A UF2 only rewrites the blocks it carries, so re-flashing keeps them.
 - Each slot is a header page (magic, length, CRC-32) and then the QFF. The header is written last, after the data checked out against the host's CRC, so an interrupted upload reads as an empty slot.
 - Erasing and programming use pico-sdk's `flash_range_*` (they run from RAM) with interrupts off, one 4 kB sector or 256-byte page at a time, so each pause is short. The USB hardware NAKs the host in the meantime, which is all the flow control the upload needs.
 - The layout is fixed, so the keymap only takes an uploaded font whose line height equals the slot's (13, 27, 24 px; it reads byte 17 of the QFF); `qff.py` renders the font at the biggest size that fits, and caps glyphs at 32 px wide (`TICKER_PAD`). Any other font falls back to the built-in one.
@@ -174,7 +174,9 @@ The settings page can replace each of the three fonts. The host converts the fon
 
 ### GIF screensavers
 
-The same store has three more slots, 256 kB each from `0x130000` (`ANIM_STORE_*` in `config.h`, slots 3–5 of the `0x66`–`0x6A` commands), each holding an animation for one of the `gif1`–`gif3` screensavers (`SAVER_GIF1`–`SAVER_GIF3`):
+The same store has six more slots, 256 kB each (`ANIM_STORE_*` in `config.h`, slots 3–8 of the `0x66`–`0x6A` commands), each holding an animation for one of the `gif1`–`gif6` screensavers (`SAVER_GIF1`–`SAVER_GIF6`). gif1–3 are after the fonts from `0x130000`, as they've been since the gifs came in; gif4–6 (v0.7.0 on) are between the firmware and the fonts, from `0x30000`:
+
+- Nine slots' CRCs don't fit one report, so `0x6A` names the first slot to report and `0x72` carries at most 7; the host asks from 0, then from 7 if the firmware is v0.7.0 or later. Older firmware ignores the first slot and always reports its 6 (3 before the gifs); the host only shows the gif slots the knob has (`gif_slots` in `/api/state`).
 
 - The host's GIF page (`host/volume_keeb/web/gif.html`, at `/gif`) does all the image work in the browser: it decodes a GIF itself (`gif.js`, compositing frames the way browsers do) and anything else with the browser's `ImageDecoder` (a still image is a one-frame animation, which the firmware draws once), optionally turned or mirrored (`Pixel.transform()`, which starts the grid detection and crop over), finds the size of one "8-bit" pixel and the grid's offset (`pixel.js`: the biggest square grid that holds at least 75% of the color edges, searched in steps that shrink with the image so a non-integer upscale like 3.5× doesn't drift), takes one color per cell (the most common shade inside it, ignoring the cell's borders), optionally merges shades within a distance of a more common color (`mergeSimilar()`, for JPEG and lossy-GIF noise), then crops the art pixels the screen shows at an integer scale (each art pixel `scale` × `scale` panel pixels). Art bigger than the screen can be shrunk instead (scales under 1×, down to the one that fits it whole; `Pixel.compose()` averages or drops pixels): the page then sends the screen's own pixels, at scale 1.
 - `kva.js` turns that into a "KVA1" file: an RGB565 palette of up to 256 colors and, per frame, runs of one color, literal pixels, or pixels left as the previous frame had them; repeated frames are merged into a longer delay. The format is described above `keymap.c`'s `anim_parse()`. `web.py` only checks the header; the firmware checks the whole file when the upload ends (and again at boot) and rejects one that doesn't parse, so drawing it needs no checks.
@@ -240,14 +242,14 @@ They land in `host\dist\`. Both carry the product name and the version from `VER
 | host → knob | `0x65` | Palette: six H,S,V colors and the decor style |
 | host → knob | `0x66`–`0x68` | Upload into a store slot (0–2 fonts, 3–5 gif screensavers): begin (slot, length, CRC; erases), data (offset + up to 26 bytes), end (checks, loads) |
 | host → knob | `0x69` | Clear a slot (a font slot goes back to the built-in font) |
-| host → knob | `0x6A` | Ask what the slots hold |
+| host → knob | `0x6A` | Ask what the slots hold, from the slot in byte 1 (v0.7.0 on; older firmware always starts at 0) |
 | host → knob | `0x6C` | Ask the firmware's version |
 | host → knob | `0x6D` | Ask the knob's settings (on connect, before sending the page's) |
 | host → knob | `0x6E` | Read a store slot back: slot and offset; the knob answers `0x75`. The host keeps 8 in flight, so a 256 kB gif takes about 10 s (v0.6.0 on) |
 | host → knob | `0x6B` | Screen: screensaver kind, seconds before it starts, seconds before the screen turns off (0 = never), a flag to start the screensaver now (the page's **Show on the knob**), and the menu's layout (carousel, list, mixer; older hosts send 0, the carousel) |
 | knob → host | `0x70` | Action for one app id: `0` set volume, `1` toggle mute, `2` play/pause |
 | knob → host | `0x71` | Result of an upload begin/end or a clear |
-| knob → host | `0x72` | The slot count and each slot's CRC (0 = empty); firmware before the gif screensavers has 3 slots |
+| knob → host | `0x72` | How many CRCs follow (7 at most) and each slot's CRC (0 = empty) from the one asked for; firmware before the gif screensavers has 3 slots, before v0.7.0 6 |
 | knob → host | `0x73` | Firmware version: major, minor, patch. The v0.1.0 firmware doesn't answer `0x6C`, so silence means v0.1.0 |
 | knob → host | `0x75` | Up to 26 bytes of a slot's file from an offset (`0x67`'s layout); fewer means the file ends there |
 | knob → host | `0x74` | The knob's settings: a changed-on-the-knob flag, the palette and decor (as `0x65`), screensaver kind and its two times and the menu's layout (as `0x6B`). Firmware before v0.4.0 doesn't answer, and the host pushes its own |

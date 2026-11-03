@@ -54,7 +54,8 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 //                    it; replies.
 //     FONT_CLEAR_CMD data[1] = slot. Empties it (a font slot goes back to the
 //                    built-in font); replies.
-//     FONT_QUERY_CMD replies FONT_INFO_CMD.
+//     FONT_QUERY_CMD data[1] = the first slot to report (0 from older
+//                    hosts); replies FONT_INFO_CMD.
 //     STORE_READ_CMD data[1] = slot, data[2..4] = offset. Replies
 //                    STORE_DATA_CMD with the file's bytes from there, so a
 //                    host that didn't upload a slot's file can still get it
@@ -79,9 +80,11 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 //                    data[3]%, 1 = toggle mute, 2 = play/pause), data[3] = value
 //   Device -> host, replies to the font commands:
 //     FONT_STATUS_CMD data[1] = slot, data[2] = FONT_OK / FONT_ERR_*
-//     FONT_INFO_CMD  data[1] = STORE_SLOTS, then each slot's CRC-32 (0 =
-//                    empty) from data[2], 4 bytes apiece. Firmware before
-//                    the animations has 3 slots.
+//     FONT_INFO_CMD  data[1] = n, then the CRC-32 (0 = empty) of n slots
+//                    from the one asked for, 4 bytes apiece from data[2]: 7
+//                    at most, so a host asks again from 7 for the rest.
+//                    Firmware before the animations has 3 slots, before
+//                    v0.7.0 6 (and always reports from slot 0).
 //     STORE_DATA_CMD data[1] = slot, data[2..4] = offset, data[5] = n,
 //                    data[6..] = n bytes (FONT_DATA_CMD's layout); n is less
 //                    than a full report's worth only at the end of the file.
@@ -275,7 +278,7 @@ typedef enum { MENU_CAROUSEL, MENU_LIST, MENU_MIXER, MENU_COUNT } menu_layout_t;
 static uint8_t menu_layout = MENU_CAROUSEL;
 static bool    mixer_grab;
 
-typedef enum { SAVER_NONE, SAVER_DRIVE, SAVER_STARS, SAVER_RAIN, SAVER_PLASMA, SAVER_BOUNCE, SAVER_GIF1, SAVER_GIF2, SAVER_GIF3, SAVER_COUNT } saver_t;
+typedef enum { SAVER_NONE, SAVER_DRIVE, SAVER_STARS, SAVER_RAIN, SAVER_PLASMA, SAVER_BOUNCE, SAVER_GIF1, SAVER_GIF2, SAVER_GIF3, SAVER_GIF4, SAVER_GIF5, SAVER_GIF6, SAVER_COUNT } saver_t;
 _Static_assert(SAVER_COUNT - SAVER_GIF1 == ANIM_SLOTS, "a gif saver per animation slot");
 static uint8_t  saver_kind     = SAVER_DRIVE;
 static uint32_t saver_after_ms = SAVER_AFTER_MS_DEFAULT;
@@ -1383,7 +1386,7 @@ static uint8_t settings_cursor;
 static bool    settings_editing;
 
 static const char *const theme_names[THEME_COUNT] = {"terminal", "neobrutal", "winamp", "neon", "studio", "hifi", "console"};
-static const char *const saver_names[SAVER_COUNT] = {"none", "drive", "stars", "rain", "plasma", "bounce", "gif 1", "gif 2", "gif 3"};
+static const char *const saver_names[SAVER_COUNT] = {"none", "drive", "stars", "rain", "plasma", "bounce", "gif 1", "gif 2", "gif 3", "gif 4", "gif 5", "gif 6"};
 static const char *const menu_names[MENU_COUNT]    = {"carousel", "list", "mixer"};
 static const char *const settings_labels[SET_COUNT] = {"Theme", "Menu", "Screensaver", "Start after", "Screen off", "Exit"};
 // The choices offered on the knob, in seconds (the settings page has the same).
@@ -1975,10 +1978,12 @@ static void handle_font_cmd(uint8_t *data, uint8_t length) {
             break;
         }
         case FONT_QUERY_CMD: {
-            uint8_t buf[RAW_EPSIZE] = {FONT_INFO_CMD, STORE_SLOTS};
-            _Static_assert(2 + 4 * STORE_SLOTS <= RAW_EPSIZE, "FONT_INFO_CMD outgrew a report");
-            for (uint8_t i = 0; i < STORE_SLOTS; i++) {
-                uint32_t crc = font_store_crc(i);
+            // As many slots from data[1] as fit; a host asks from 0 first.
+            uint8_t first = slot < STORE_SLOTS ? slot : STORE_SLOTS, n = STORE_SLOTS - first;
+            if (n > (RAW_EPSIZE - 2) / 4) n = (RAW_EPSIZE - 2) / 4;
+            uint8_t buf[RAW_EPSIZE] = {FONT_INFO_CMD, n};
+            for (uint8_t i = 0; i < n; i++) {
+                uint32_t crc = font_store_crc(first + i);
                 for (uint8_t b = 0; b < 4; b++) buf[2 + i * 4 + b] = crc >> (8 * b);
             }
             raw_hid_send(buf, sizeof(buf));
@@ -2213,7 +2218,7 @@ static void flush_screen(void) {
 //   SAVER_PLASMA  a slowly churning plasma cycling through the theme's colors.
 //   SAVER_BOUNCE  what's playing (or "Volume Keeb") bouncing off the edges,
 //                 changing color at each bounce.
-//   SAVER_GIF1-3  an animation uploaded from the host's GIF page (an empty
+//   SAVER_GIF1-6  an animation uploaded from the host's GIF page (an empty
 //                 slot shows the drive instead).
 // All but the drive take their colors from the theme. Only the knob stops a
 // screensaver (see wake_ui()); host updates don't.
@@ -3009,7 +3014,10 @@ static void render_saver_frame(void) {
         case SAVER_BOUNCE: render_bounce(); break;
         case SAVER_GIF1:
         case SAVER_GIF2:
-        case SAVER_GIF3: render_anim(t); break;
+        case SAVER_GIF3:
+        case SAVER_GIF4:
+        case SAVER_GIF5:
+        case SAVER_GIF6: render_anim(t); break;
         default: render_drive(t); break;
     }
     saver_last_t = t;
@@ -3028,7 +3036,10 @@ static void start_saver(void) {
         case SAVER_BOUNCE: start_bounce(); break;
         case SAVER_GIF1:
         case SAVER_GIF2:
-        case SAVER_GIF3: start_anim(); break;
+        case SAVER_GIF3:
+        case SAVER_GIF4:
+        case SAVER_GIF5:
+        case SAVER_GIF6: start_anim(); break;
     }
     render_saver_frame();
     saver_frame_time = timer_read32();

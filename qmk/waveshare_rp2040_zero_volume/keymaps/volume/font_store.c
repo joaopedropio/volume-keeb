@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
 // The slots live in reserved stretches of the RP2040's flash (FONT_STORE_*
-// and ANIM_STORE_* in config.h), well past the firmware and clear of the wear-leveled EEPROM
-// at the very end. A UF2 only rewrites the blocks it carries, so flashing new
+// and ANIM_STORE_* in config.h, which draws the layout), past the firmware
+// and clear of the wear-leveled EEPROM at the very end. A UF2 only rewrites the blocks it carries, so flashing new
 // firmware leaves them alone.
 //
 // Each slot is a header page followed by the file. The header is written
@@ -16,17 +16,24 @@
 #include "font_store.h"
 
 #define SLOT_MAGIC 0x3146564B // "KVF1"
-#define SLOT_BASE(slot) ((slot) < ANIM_SLOT0 ? FONT_STORE_OFFSET + (uint32_t)(slot) * FONT_STORE_SLOT_SIZE : ANIM_STORE_OFFSET + (uint32_t)((slot) - ANIM_SLOT0) * ANIM_STORE_SLOT_SIZE)
+// gif1-3 after the fonts, gif4-6 (v0.7.0 on) between the firmware and the fonts.
+#define ANIM_HIGH 3
+#define ANIM_BASE(i) ((i) < ANIM_HIGH ? ANIM_STORE_OFFSET + (uint32_t)(i) * ANIM_STORE_SLOT_SIZE : ANIM_STORE_LOW_OFFSET + (uint32_t)((i) - ANIM_HIGH) * ANIM_STORE_SLOT_SIZE)
+#define SLOT_BASE(slot) ((slot) < ANIM_SLOT0 ? FONT_STORE_OFFSET + (uint32_t)(slot) * FONT_STORE_SLOT_SIZE : ANIM_BASE((slot) - ANIM_SLOT0))
 #define SLOT_SIZE(slot) ((slot) < ANIM_SLOT0 ? FONT_STORE_SLOT_SIZE : ANIM_STORE_SLOT_SIZE)
 #define DATA_OFFSET FLASH_PAGE_SIZE
 #define DATA_MAX(slot) (SLOT_SIZE(slot) - DATA_OFFSET)
 
+_Static_assert(FIRMWARE_MAX % FLASH_SECTOR_SIZE == 0, "the firmware's end must be on a sector");
 _Static_assert(FONT_STORE_OFFSET % FLASH_SECTOR_SIZE == 0, "font store must start on a sector");
 _Static_assert(FONT_STORE_SLOT_SIZE % FLASH_SECTOR_SIZE == 0, "font slots must be whole sectors");
 _Static_assert(ANIM_STORE_OFFSET % FLASH_SECTOR_SIZE == 0, "animation store must start on a sector");
+_Static_assert(ANIM_STORE_LOW_OFFSET % FLASH_SECTOR_SIZE == 0, "the low animation slots must start on a sector");
 _Static_assert(ANIM_STORE_SLOT_SIZE % FLASH_SECTOR_SIZE == 0, "animation slots must be whole sectors");
+_Static_assert(ANIM_STORE_LOW_OFFSET >= FIRMWARE_MAX, "the low animation slots overlap the firmware");
+_Static_assert(ANIM_STORE_LOW_OFFSET + (ANIM_SLOTS - ANIM_HIGH) * ANIM_STORE_SLOT_SIZE <= FONT_STORE_OFFSET, "the low animation slots run into the fonts");
 _Static_assert(FONT_STORE_OFFSET + FONT_SLOTS * FONT_STORE_SLOT_SIZE <= ANIM_STORE_OFFSET, "font and animation slots overlap");
-_Static_assert(ANIM_STORE_OFFSET + ANIM_SLOTS * ANIM_STORE_SLOT_SIZE <= 0x200000 - 8192, "animation slots run into the EEPROM");
+_Static_assert(ANIM_STORE_OFFSET + ANIM_HIGH * ANIM_STORE_SLOT_SIZE <= 0x200000 - 8192, "animation slots run into the EEPROM");
 
 typedef struct {
     uint32_t magic;

@@ -51,7 +51,7 @@ DECORS = ("flat", "boxed", "bevel", "neon", "dial", "vu", "mixer")
 MENUS = ("carousel", "list", "mixer")
 
 # saver_t's values, in order. The gif ones play what GIF_SLOTS hold.
-SAVERS = ("none", "drive", "stars", "rain", "plasma", "bounce", "gif1", "gif2", "gif3")
+SAVERS = ("none", "drive", "stars", "rain", "plasma", "bounce", "gif1", "gif2", "gif3", "gif4", "gif5", "gif6")
 
 # keymap.c's `themes[]`, as H,S,V in QMK's 0-255 ranges -- the presets the
 # settings page starts from. HSV_GREEN = 85,255,255; HSV_RED = 0,255,255.
@@ -103,7 +103,8 @@ FONT_SLOTS = {
 }
 # And the slots after them, for the gif screensavers' animations (made by
 # web/gif.html; the format is described above keymap.c's anim_parse()).
-GIF_SLOTS = {"gif1": {"index": 3}, "gif2": {"index": 4}, "gif3": {"index": 5}}
+# gif4-6 came with firmware v0.7.0.
+GIF_SLOTS = {f"gif{n}": {"index": 2 + n} for n in range(1, 7)}
 GIF_MAX_BYTES = 0x40000 - 256  # ANIM_STORE_SLOT_SIZE minus the header page
 STORE_INDEX = {**{k: v["index"] for k, v in FONT_SLOTS.items()}, **{k: v["index"] for k, v in GIF_SLOTS.items()}}
 FONT_MAX_GLYPH_W = 32  # keymap.c's TICKER_PAD
@@ -176,7 +177,7 @@ def parse_settings_info(report):
 
 def parse_font_info(report):
     """FONT_INFO_CMD -> list of per-slot CRCs (0 = empty, or the built-in font)."""
-    count = report[1]
+    count = min(report[1], (len(report) - 2) // 4)
     return [struct.unpack_from("<I", report, 2 + 4 * i)[0] for i in range(count)]
 
 
